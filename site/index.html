@@ -6,9 +6,9 @@
 <title>Middle East Airspace Watch</title>
 <style>
   :root {
-    --surface: #1a1a19; --surface-2: #232321; --water: #121211; --land: #24241f;
-    --border: #3a3a36; --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
-    --blue: #3987e5; --red: #e66767; --base: #a9a89f;
+    --surface: #f7f6f2; --surface-2: #ffffff; --water: #ffffff; --land: #e8e4d8;
+    --border: #d6d3c9; --text: #1f1f1c; --text-2: #4a4944; --text-3: #75736b;
+    --blue: #2f6fc4; --red: #c94343; --base: #9c9a90; --on: #e6e3d9; --panel: rgba(255,255,255,.93);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--surface); color: var(--text);
@@ -17,11 +17,11 @@
   header { padding: 12px 16px 6px; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
   h1 { font-size: 16px; font-weight: 600; margin: 0; }
   .meta { color: var(--text-3); font-size: 12px; }
-  .demo { background: #5a3d10; color: #ffd89a; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; }
+  .demo { background: #fbe3b4; color: #6b4300; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; }
   .bar { display: flex; gap: 10px; align-items: center; padding: 6px 16px 8px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
   .seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px; }
   .seg button { background: none; border: 0; color: var(--text-2); padding: 4px 10px; border-radius: 4px; cursor: pointer; font: inherit; }
-  .seg button.on { background: #3a3a36; color: var(--text); }
+  .seg button.on { background: var(--on); color: var(--text); font-weight: 600; }
   .seg button:focus-visible, .btn:focus-visible, select:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
   .btn, select { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 4px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
   .lbl { color: var(--text-3); font-size: 12px; }
@@ -34,23 +34,23 @@
   #gl, #top { pointer-events: none; }
   #base { cursor: grab; touch-action: none; }
   #base.drag { cursor: grabbing; }
-  #tip { position: absolute; pointer-events: none; background: rgba(26,26,25,.94); border: 1px solid var(--border);
+  #tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--border);
     border-radius: 6px; padding: 6px 8px; font-size: 12px; color: var(--text); display: none; white-space: nowrap; z-index: 3; }
   #tip .s { color: var(--text-3); }
-  #legend { position: absolute; left: 12px; bottom: 12px; background: rgba(26,26,25,.88); border: 1px solid var(--border);
+  #legend { position: absolute; left: 12px; bottom: 12px; background: var(--panel); border: 1px solid var(--border);
     border-radius: 6px; padding: 8px 10px; font-size: 11px; color: var(--text-2); z-index: 2; max-width: 260px; }
   #legend canvas { position: static; display: block; width: 220px; height: 10px; border-radius: 2px; margin: 4px 0 2px; }
   #legend .ticks { display: flex; justify-content: space-between; color: var(--text-3); }
   .lineKey { display: flex; gap: 12px; margin-top: 4px; }
   .lineKey span { display: inline-flex; align-items: center; gap: 5px; }
   .lineKey { flex-wrap: wrap; align-items: center; }
-  .lineKey i { display: inline-block; width: 22px; height: 0; border-top: 2px solid #3c8ae8; }
-  .lineKey i.gap { border-top: 1px solid rgba(158,158,148,.6); }
+  .lineKey i { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--blue); }
+  .lineKey i.gap { border-top: 1px solid rgba(120,119,112,.7); }
   #zoom { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 4px; z-index: 2; }
   #zoom .btn { width: 30px; padding: 4px 0; }
-  #loading { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); background: rgba(26,26,25,.9);
+  #loading { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); background: var(--panel);
     border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 12px; color: var(--text-2); z-index: 2; display: none; }
-  #note { position: absolute; right: 12px; bottom: 12px; max-width: 300px; background: rgba(26,26,25,.88); border: 1px solid var(--border);
+  #note { position: absolute; right: 12px; bottom: 12px; max-width: 300px; background: var(--panel); border: 1px solid var(--border);
     border-radius: 6px; padding: 8px 10px; font-size: 11px; color: var(--text-3); z-index: 2; }
   #note b { color: var(--text-2); font-weight: 600; }
   #noteX { float: right; background: none; border: 0; color: var(--text-3); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 0 0 6px; }
@@ -182,10 +182,10 @@ async function loadLines([i0, i1]) {
 }
 
 // ---------- colour ----------
-const SEQ = [[24,79,149],[42,120,214],[85,152,231],[134,182,239],[205,226,251],[245,249,255]];
+const SEQ = [[214,229,247],[160,197,238],[98,152,222],[50,108,190],[22,68,140],[9,37,88]];   // light -> dark blue (light map)
 function lerpRamp(r, t) { t = Math.max(0, Math.min(1, t)) * (r.length - 1); const i = Math.min(r.length - 2, Math.floor(t)), f = t - i;
   return r[i].map((v, k) => v + (r[i + 1][k] - v) * f); }
-const RED = [230,103,103], BLUE = [57,135,229], MID = [56,56,53];
+const RED = [201,67,67], BLUE = [47,111,196], MID = [205,202,193];
 function divColor(t) { const c = t < 0 ? RED : BLUE, f = Math.min(1, Math.abs(t)); return MID.map((v, k) => v + (c[k] - v) * f); }
 function quantile(arr, q) { const v = []; for (const x of arr) if (x > 0) v.push(x); if (!v.length) return 1;
   v.sort((a, b) => a - b); return v[Math.min(v.length - 1, Math.floor(q * v.length))]; }
@@ -232,12 +232,14 @@ const glc = $("gl"), gl = glc.getContext("webgl2", { premultipliedAlpha: true, a
 //     positions are sub-pixel);
 //  2. jump flooding finds, for every pixel, the line point whose stroke covers it best. The stroke's
 //     half-width grows with flights per day at that point;
-//  3. that coverage is shaded: smooth edges, busier paths wider and lighter.
+//  3. that coverage is shaded: smooth edges, busier paths wider and darker.
 // Lines are full strength up to FADE_KM[0] from the airport of interest (Doha unless another airport is
 // picked), then thin out and fade to nothing at FADE_KM[1]; segments wholly beyond that are skipped.
 // Without float targets the lines are blended straight onto the canvas instead (no width encoding).
 const R_MAX = 4;              // widest half-width in CSS pixels
 const FADE_KM = [1800, 3200]; // 1800 km from Doha covers all of Saudi Arabia; Istanbul/Delhi are ~2,600-2,700 km
+// line colour by flights/day (t = log2(1 + f) / log2(101)): mid blue for rare paths -> deep navy for 100+/day
+const LINE_LO = [52, 112, 192], LINE_HI = [10, 42, 98];
 const JOIN_WEIGHT = "0.35";   // an unheard join counts this much of a flight towards line width
 let prog, segP, jInit, jStep, comp, vao, segVao, quad, nIdx = 0, nSeg = 0, acc = null;
 if (gl) {
@@ -277,7 +279,7 @@ if (gl) {
     void main() {
       if (v_gap > 1.5) discard;
       float a = u_color.a * v_fade * (u_gaps && v_gap > 0.5 ? 0.35 : 1.0);
-      o = vec4((u_gaps && v_gap > 0.5 ? vec3(0.62, 0.62, 0.58) : u_color.rgb) * a, a);
+      o = vec4((u_gaps && v_gap > 0.5 ? vec3(0.5, 0.49, 0.46) : u_color.rgb) * a, a);
     }`);
   // step 1: one instance per segment (point i -> i+1), drawn as a quad 1 px either side of the segment
   segP = link(`#version 300 es
@@ -354,18 +356,19 @@ if (gl) {
   // step 3: shade
   comp = link(FS, `#version 300 es
     precision highp float; uniform sampler2D u_tex; uniform bool u_gaps; ${VIEW} ${HW} out vec4 o;
+    const vec3 LINE_LO = vec3(${LINE_LO.join(",")}) / 255.0, LINE_HI = vec3(${LINE_HI.join(",")}) / 255.0;
     void main() {
       float fade = fadeAt(unproject(gl_FragCoord.xy));
       vec4 s = texelFetch(u_tex, ivec2(gl_FragCoord.xy), 0);
       if (fade <= 0.0 || s.w < -0.5) discard;
       float cov = clamp(halfWidth(s.z, fade) - length(s.xy) + 0.5, 0.0, 1.0);
-      // every flight visible; busier paths lighter and more opaque; all fade out far from the centre
+      // every flight visible; busier paths darker and more opaque; all fade out far from the centre
       float t = clamp(log2(1.0 + s.z) / log2(101.0), 0.0, 1.0);
-      vec3 col = mix(vec3(42., 108., 200.) / 255., vec3(196., 222., 252.) / 255., t * t);
-      float a = cov * mix(0.55, 1.0, t) * fade;
+      vec3 col = mix(LINE_LO, LINE_HI, t);
+      float a = cov * mix(0.6, 1.0, t) * fade;
       // unheard stretches (s.w = their share here): paler; grey when "Mark unheard stretches" is on
-      if (u_gaps) { col = mix(col, vec3(0.62, 0.62, 0.58), s.w); a *= 1.0 - 0.6 * s.w; }
-      else a *= 1.0 - 0.45 * s.w;
+      if (u_gaps) { col = mix(col, vec3(0.5, 0.49, 0.46), s.w); a *= 1.0 - 0.6 * s.w; }
+      else a *= 1.0 - 0.7 * s.w;
       if (a <= 0.0) discard;
       o = vec4(col * a, a);
     }`);
@@ -459,7 +462,7 @@ function drawGL() {
     view(prog); gl.bindVertexArray(vao);
     gl.uniform1i(gl.getUniformLocation(prog, "u_gaps"), S.gaps ? 1 : 0);
     const k = Math.min(0.9, Math.max(0.015, 5 / Math.sqrt(Math.max(1, S.legsShown)) * Math.pow(2, S.bright)));
-    gl.uniform4f(gl.getUniformLocation(prog, "u_color"), 0.36, 0.62, 1.0, k);
+    gl.uniform4f(gl.getUniformLocation(prog, "u_color"), 0.16, 0.38, 0.72, k);
     gl.drawElements(gl.LINE_STRIP, nIdx, gl.UNSIGNED_INT, 0); return;
   }
   const [A, P, Q] = acc.t, wk = Math.pow(2, S.bright / 2);
@@ -510,21 +513,21 @@ function visible(ring, r) { // cheap bbox cull
 function draw() {
   const { dpr, r } = fit(cv);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = "#121211"; ctx.fillRect(0, 0, r.width, r.height);
-  ctx.fillStyle = "#24241f";
+  ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, r.width, r.height);           // sea
+  ctx.fillStyle = "#e8e4d8";                                                    // land
   for (const c of BM.countries) for (const ring of c.rings) if (visible(ring, r)) { ringPath(ctx, ring); ctx.fill(); }
-  ctx.fillStyle = "#121211"; for (const l of BM.lakes) for (const ring of l.rings) if (visible(ring, r)) { ringPath(ctx, ring); ctx.fill(); }
+  ctx.fillStyle = "#ffffff"; for (const l of BM.lakes) for (const ring of l.rings) if (visible(ring, r)) { ringPath(ctx, ring); ctx.fill(); }
   const [x0, y0] = proj(G.lat_max, G.lon_min), [x1, y1] = proj(G.lat_min, G.lon_max);
   if (S.mode !== "lines") {
-    ctx.imageSmoothingEnabled = S.zoom < 3; ctx.globalCompositeOperation = "lighter";
+    ctx.imageSmoothingEnabled = S.zoom < 3; ctx.globalCompositeOperation = "multiply";
     ctx.drawImage(off, x0, y0, x1 - x0, y1 - y0); ctx.globalCompositeOperation = "source-over";
   }
-  ctx.strokeStyle = "rgba(195,194,183,.25)"; ctx.lineWidth = 0.7;
+  ctx.strokeStyle = "rgba(92,89,80,.6)"; ctx.lineWidth = 0.7;           // country outlines
   for (const c of BM.countries) for (const ring of c.rings) if (visible(ring, r)) { ringPath(ctx, ring); ctx.stroke(); }
   drawGL();
   // top layer: labels, airports, events
   fit(topc); tctx.setTransform(dpr, 0, 0, dpr, 0, 0); tctx.clearRect(0, 0, r.width, r.height);
-  tctx.textAlign = "center"; tctx.textBaseline = "middle"; tctx.font = "600 11px system-ui, sans-serif"; tctx.fillStyle = "rgba(195,194,183,.5)";
+  tctx.textAlign = "center"; tctx.textBaseline = "middle"; tctx.font = "600 11px system-ui, sans-serif"; tctx.fillStyle = "rgba(80,78,70,.5)";
   const maxRank = 2 + Math.log2(Math.max(0.25, S.zoom)) * 2 + 2;
   for (const c of BM.countries) { if (c.rank > maxRank) continue; const [x, y] = proj(c.label[1], c.label[0]);
     if (x > 0 && y > 0 && x < r.width && y < r.height) tctx.fillText(c.name.toUpperCase(), x, y); }
@@ -534,12 +537,12 @@ function draw() {
     if (x < -20 || y < -20 || x > r.width + 20 || y > r.height + 20) continue;
     if (S.zoom < 0.7 && !(sel && sel[0] === code)) continue;
     const hi = sel && sel[0] === code;
-    tctx.fillStyle = hi ? "#ffffff" : "#f0efec"; tctx.beginPath(); tctx.arc(x, y, hi ? 3.5 : 2, 0, 7); tctx.fill();
-    tctx.fillStyle = hi ? "#ffffff" : "rgba(240,239,236,.8)"; tctx.font = hi ? "600 12px system-ui, sans-serif" : "10px system-ui, sans-serif";
+    tctx.fillStyle = hi ? "#000000" : "#2b2a26"; tctx.beginPath(); tctx.arc(x, y, hi ? 3.5 : 2, 0, 7); tctx.fill();
+    tctx.fillStyle = hi ? "#000000" : "rgba(43,42,38,.85)"; tctx.font = hi ? "600 12px system-ui, sans-serif" : "10px system-ui, sans-serif";
     tctx.fillText(code, x + 5, y - 6); }
   const from = M.days[S.sel[0]].date, to = M.days[S.sel[1]].date;
   for (const e of EV) { if (e.date < from || e.date > to) continue; const [x, y] = proj(e.lat, e.lon);
-    tctx.save(); tctx.translate(x, y); tctx.rotate(Math.PI / 4); tctx.fillStyle = "#f0efec"; tctx.strokeStyle = "#1a1a19"; tctx.lineWidth = 2;
+    tctx.save(); tctx.translate(x, y); tctx.rotate(Math.PI / 4); tctx.fillStyle = "#2b2a26"; tctx.strokeStyle = "#ffffff"; tctx.lineWidth = 2;
     tctx.strokeRect(-4, -4, 8, 8); tctx.fillRect(-4, -4, 8, 8); tctx.restore(); }
 }
 
@@ -547,11 +550,16 @@ function draw() {
 function legend() {
   const el = $("legend");
   if (S.mode === "lines") {
+    // same width and colour formulas as the line shaders
     const wk = Math.pow(2, S.bright / 2), w = f => Math.max(1, 2 * Math.min(R_MAX, wk * (0.45 + 0.3 * Math.log2(1 + f))));
-    el.innerHTML = `<div>One line per flight. Thicker = more flights per day on that path. Lines fade out beyond ~1,800 km from ${M.airports[S.airport - 1] ? M.airports[S.airport - 1][0] : "Doha"}.</div>
+    const col = (f, k = 1) => { const t = Math.min(1, Math.log2(1 + f) / Math.log2(101));
+      return `rgba(${LINE_LO.map((v, i) => Math.round(v + (LINE_HI[i] - v) * t)).join(",")},${((0.6 + 0.4 * t) * k).toFixed(2)})`; };
+    const ap = M.airports[S.airport - 1];
+    el.innerHTML = `<div>One line per flight. <b>Thicker and darker = more flights per day</b> on that path.
+      Lines fade out beyond ~1,800 km from ${ap ? ap[0] : "Doha"}.</div>
       <div class="lineKey">${[[1 / 7, "1 / week"], [1, "1 / day"], [10, "10 / day"], [100, "100+ / day"]]
-        .map(([f, t]) => `<span><i style="border-top-width:${w(f).toFixed(1)}px"></i>${t}</span>`).join("")}</div>` +
-      (S.gaps ? `<div class="lineKey"><span><i class="gap"></i>unheard for 5+ min: straight join</span></div>` : "");
+        .map(([f, t]) => `<span><i style="border-top:${w(f).toFixed(1)}px solid ${col(f)}"></i>${t}</span>`).join("")}</div>
+      <div class="lineKey"><span><i style="border-top:${w(1).toFixed(1)}px solid ${S.gaps ? "rgba(128,125,117,.6)" : col(1, 0.3)}"></i>not heard by receivers for 5+ min: straight join</span></div>`;
     return;
   }
   el.innerHTML = `<div id="legTitle"></div><canvas id="legBar" width="220" height="10"></canvas><div class="ticks" id="legTicks"></div>`;
@@ -595,18 +603,18 @@ function timeline() {
   const bw = (W - pad.l - pad.r) / n, max = Math.max(...M.days.map(d => d.legs)) * 1.05;
   svg.innerHTML = ""; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   const y = v => pad.t + (H - pad.t - pad.b) * (1 - v / max);
-  for (const t of [0, max / 2]) { el("line", { x1: pad.l, x2: W - pad.r, y1: y(t), y2: y(t), stroke: "#3a3a36", "stroke-width": 1 }, svg);
-    el("text", { x: pad.l - 6, y: y(t) + 3, "text-anchor": "end", fill: "#8f8e86", "font-size": 10 }, svg).textContent = Math.round(t).toLocaleString(); }
+  for (const t of [0, max / 2]) { el("line", { x1: pad.l, x2: W - pad.r, y1: y(t), y2: y(t), stroke: "#e2dfd6", "stroke-width": 1 }, svg);
+    el("text", { x: pad.l - 6, y: y(t) + 3, "text-anchor": "end", fill: "#75736b", "font-size": 10 }, svg).textContent = Math.round(t).toLocaleString(); }
   const inR = (i, [a, b]) => i >= a && i <= b;
   M.days.forEach((d, i) => {
-    const col = inR(i, S.sel) ? "#3987e5" : (S.mode === "compare" && inR(i, S.base)) ? "#a9a89f" : "#3a3a36";
+    const col = inR(i, S.sel) ? "#2f6fc4" : (S.mode === "compare" && inR(i, S.base)) ? "#9c9a90" : "#d6d3c9";
     const r = el("rect", { x: pad.l + i * bw + 0.5, y: y(d.legs), width: Math.max(1, bw - 1.5), height: Math.max(1, y(0) - y(d.legs)), fill: col, rx: Math.min(2, bw / 3) }, svg);
     el("title", {}, r).textContent = `${fmtD(d.date)}: ${d.legs.toLocaleString()} flights`;
     const dt = new Date(d.date + "T00:00:00Z");
-    if (dt.getUTCDate() === 1) el("text", { x: pad.l + i * bw, y: H - 4, fill: "#8f8e86", "font-size": 10 }, svg).textContent = dt.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" });
+    if (dt.getUTCDate() === 1) el("text", { x: pad.l + i * bw, y: H - 4, fill: "#75736b", "font-size": 10 }, svg).textContent = dt.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" });
   });
   for (const e of EV) { const i = M.days.findIndex(d => d.date === e.date); if (i < 0) continue;
-    const t = el("text", { x: pad.l + (i + 0.5) * bw, y: 10, "text-anchor": "middle", fill: "#f0efec", "font-size": 10 }, svg); t.textContent = "◆";
+    const t = el("text", { x: pad.l + (i + 0.5) * bw, y: 10, "text-anchor": "middle", fill: "#2b2a26", "font-size": 10 }, svg); t.textContent = "◆";
     el("title", {}, t).textContent = `${fmtD(e.date)}: ${e.title}`; }
   svg._geo = { pad, bw, n };
 }
@@ -650,7 +658,7 @@ seg("presets", v => { stopPlay(); const n = M.days.length, k = Math.min(n, +v);
   if (S.mode === "compare" && S.editing === "base") S.base = [0, Math.min(n - 1, k - 1)]; else S.sel = [n - k, n - 1];
   timeline(); refresh(); });
 seg("editing", v => { S.editing = v; });
-$("airport").onchange = e => { S.airport = +e.target.value; buildIndex(); stats(); draw(); };
+$("airport").onchange = e => { S.airport = +e.target.value; buildIndex(); stats(); legend(); draw(); };
 $("bright").oninput = e => { S.bright = +e.target.value; draw(); legend(); };
 $("gaps").onchange = e => { S.gaps = e.target.checked; draw(); legend(); };
 $("noteX").onclick = () => $("note").classList.add("hide");

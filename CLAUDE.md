@@ -69,7 +69,7 @@ GitHub Pages source = "GitHub Actions" (already set).
      nearest point on the segment (sub-pixel line position). Pixels belong to the segment with t in [0,1).
   2. jump flooding (init + steps 8,4,2,1,1 at dpr 2) picks per pixel the seed maximising halfWidth - distance;
      half-width = w·(0.45 + 0.3·log2(1 + flights/day)) CSS px (max R_MAX=4); density = line weight within ~1 CSS px.
-  3. shade: smooth coverage, colour dark→light blue with density. No analysis-box outline or dimming (user asked).
+  3. shade: smooth coverage, colour mid blue→deep navy with density. No analysis-box outline or dimming (user asked).
   Distance fade (user's design, Nov 8): full strength within FADE_KM[0]=1800 km of the airport of interest
   (Doha, or the airport picked in "Flights"), then width (to 35%) and opacity taper to 0 at FADE_KM[1]=3200 km.
   Computed per pixel (unproject + haversine); segments wholly beyond FADE_KM[1] are culled in the vertex shader.
@@ -85,7 +85,10 @@ GitHub Pages source = "GitHub Actions" (already set).
 - Controls: range presets, drag-select on daily-totals timeline, airport filter, line width, mark unheard stretches, ▶ Play weekly.
 - `MAX_LINES = 150000`: above it, fewer shards per day are loaded (random sample, stated in the UI).
 - `manifest.bundle` (optional) lets a host that can't serve .bin (the claude.ai artifact preview) use one base64 JSON.
-- Colors from a validated palette: sequential blue, diverging red/blue with gray midpoint, dark surface #1a1a19.
+- Light theme (user, Nov 8): white sea, beige land #e8e4d8, darker country outlines, page surface #f7f6f2.
+  Line colour = flights/day too (redundant with width): LINE_LO mid blue -> LINE_HI deep navy, t = log2(1+f)/log2(101);
+  the legend samples use the same formulas. Unheard joins at 30% opacity (more made a grey fog over Iran/Saudi).
+  Heatmap: SEQ light -> dark blue drawn with "multiply"; Compare: red/blue with light-grey midpoint.
 
 ## Testing
 - Pipeline: build a tiny tar of `traces/xx/trace_full_<hex>.json` (gzip JSON), `split` it, pipe through `process_day.py`.
