@@ -197,7 +197,9 @@ def process(stream, date, outdir):
     lines = []
     n_legs = n_aircraft = n_points = n_files = 0
     t0 = time.time()
-    with tarfile.open(fileobj=stream, mode="r|") as tar:
+    # ignore_zeros: skip damaged or zero blocks instead of treating them as the end of the
+    # archive (the 2026-09-01 release has a bad block a third of the way in)
+    with tarfile.open(fileobj=stream, mode="r|", ignore_zeros=True) as tar:
         for member in tar:
             name = member.name
             if not member.isfile() or "/traces/" not in "/" + name or "trace_full_" not in name:
@@ -230,6 +232,8 @@ def process(stream, date, outdir):
             if n_files % 20000 == 0:
                 print(f"  {n_files} traces read, {n_aircraft} aircraft in box, "
                       f"{time.time() - t0:.0f}s", file=sys.stderr)
+    while stream.read(1 << 20):   # drain any trailing bytes so curl doesn't fail with a broken pipe
+        pass
     if n_files == 0:
         sys.exit("no trace files found in the archive")
 
