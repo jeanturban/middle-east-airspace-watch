@@ -39,7 +39,7 @@ data/                     committed by the workflow: manifest.json, days/*.json,
 ## Pipeline details
 - A leg is kept if any airborne point is inside the box. Its **entire** path is stored (worldwide),
   Douglas-Peucker simplified at 0.03°, coords as int16 lat*100/lon*100.
-- Gaps > 5 min or > 100 km between reports → gap flag 1 (hidden by default, "Show gaps" draws them thin/grey).
+- Gaps > 5 min or > 100 km between reports → gap flag 1 (drawn as pale straight joins; "Mark unheard stretches" greys them).
   |Δlon| > 180 → flag 2 (never drawn). Positions are never estimated by adsb.lol (ADS-B/MLAT/TIS-B only);
   straight stretches come from these joins. Measured Nov 5: in-box distance was 56% reports <1 min apart,
   15% 2–20 min joins, 29% >20 min joins.
@@ -70,12 +70,19 @@ GitHub Pages source = "GitHub Actions" (already set).
   2. jump flooding (init + steps 8,4,2,1,1 at dpr 2) picks per pixel the seed maximising halfWidth - distance;
      half-width = w·(0.45 + 0.3·log2(1 + flights/day)) CSS px (max R_MAX=4); density = line weight within ~1 CSS px.
   3. shade: smooth coverage, colour dark→light blue with density. No analysis-box outline or dimming (user asked).
+  Distance fade (user's design, Nov 8): full strength within FADE_KM[0]=1800 km of the airport of interest
+  (Doha, or the airport picked in "Flights"), then width (to 35%) and opacity taper to 0 at FADE_KM[1]=3200 km.
+  Computed per pixel (unproject + haversine); segments wholly beyond FADE_KM[1] are culled in the vertex shader.
+  Unheard joins (gap flag 1) are drawn by default so routes look continuous (e.g. Arabian Sea crossings,
+  typically 1,300-2,300 km joins), but count JOIN_WEIGHT=0.35 towards width and are paler; "Mark unheard
+  stretches" (S.gaps) turns them grey. Measured Nov 1-3 within 3200 km: joins are 57% of drawn distance,
+  69% of it from joins >1000 km, so they must stay visually secondary or they swamp avoided airspace.
   "Line width" slider scales w. Without float targets: premultiplied additive LINE_STRIPs (no width encoding).
   Never go back to plain alpha blending at tiny alpha: the 8-bit canvas alpha rounds to 0 and the layer vanishes.
   The old CSS-pixel dilation looked beaded/pixelated (user, Nov 8); don't return to it.
 - Equirectangular projection with cos(28°) x-scaling; zoom 0.2–16 (zoom out to world).
 - Modes: Flight paths (default) / Heatmap / Compare periods (baseline vs recent, red = fewer flights).
-- Controls: range presets, drag-select on daily-totals timeline, airport filter, line width, show gaps, ▶ Play weekly.
+- Controls: range presets, drag-select on daily-totals timeline, airport filter, line width, mark unheard stretches, ▶ Play weekly.
 - `MAX_LINES = 150000`: above it, fewer shards per day are loaded (random sample, stated in the UI).
 - `manifest.bundle` (optional) lets a host that can't serve .bin (the claude.ai artifact preview) use one base64 JSON.
 - Colors from a validated palette: sequential blue, diverging red/blue with gray midpoint, dark surface #1a1a19.

@@ -85,7 +85,7 @@
   </div>
   <span class="ctl" id="airportCtl"><span class="lbl">Flights</span><select id="airport"><option value="0">All flights</option></select></span>
   <span class="ctl" id="brightCtl"><span class="lbl">Line width</span><input type="range" id="bright" min="-2" max="2" step="0.1" value="0" aria-label="Line width"></span>
-  <label class="ctl" id="gapCtl" title="Stretches where no receiver heard the aircraft for over 5 minutes, joined with a straight line"><input type="checkbox" id="gaps"><span class="lbl">Show gaps</span></label>
+  <label class="ctl" id="gapCtl" title="Stretches where no receiver heard the aircraft for over 5 minutes are drawn as a straight join between the last and next report. Tick to show them in grey."><input type="checkbox" id="gaps"><span class="lbl">Mark unheard stretches</span></label>
   <button class="btn" id="play" title="Slide a 7-day window across the whole period">▶ Play weekly</button>
   <div class="stat" id="stat"></div>
 </div>
@@ -120,7 +120,7 @@ const S = { mode: "lines", sel: [0, 0], base: [0, 0], editing: "cmp", cache: new
             zoom: 1, panX: 0, panY: 0, playing: null, field: null, airport: 0, bright: 0, gaps: false, lines: null };
 let G, M, BM, EV = [];
 const NOTES = {
-  lines: "Each line is one civil flight that crossed the region (Egypt to Pakistan, Yemen to the Caucasus), drawn from takeoff to landing wherever volunteer receivers heard it. Where no position was received for over 5 minutes the line stops (turn on <i>Show gaps</i> to see those stretches as straight joins). Empty areas can mean airlines avoid them <i>or</i> that no receivers cover them.",
+  lines: "Each line is one civil flight that crossed the region (Egypt to Pakistan, Yemen to the Caucasus), drawn from takeoff to landing. Lines fade out with distance from Doha (or the airport picked under <i>Flights</i>), from about 1,800 km. Where no receiver heard the aircraft for over 5 minutes, such as over open sea, the line is a straight join between the last and next report (tick <i>Mark unheard stretches</i> to show these in grey). Empty areas can mean airlines avoid them <i>or</i> that no receivers cover them.",
   density: "Each cell counts flights (civil, airborne) that crossed it per day, averaged over the selected dates. Dark areas can mean aircraft avoid them <i>or</i> that no receivers cover them.",
   compare: "Red cells lost traffic compared with the baseline, blue cells gained it. A cell that goes from busy to empty is a real change; an area that was always empty may just lack receivers."
 };
@@ -227,13 +227,18 @@ function fit(c) { const dpr = devicePixelRatio || 1, r = c.getBoundingClientRect
 const glc = $("gl"), gl = glc.getContext("webgl2", { premultipliedAlpha: true, antialias: true });
 // With float render targets, lines are drawn in device pixels in three steps:
 //  1. every flight segment is rasterised as a 2 px wide soft stroke into a float buffer that sums, per
-//     pixel, the observed flights (R), the unobserved joins (G) and where exactly the line passes (B, A:
-//     weighted offset from the pixel centre to the nearest point on the segment, so positions are sub-pixel);
+//     pixel, the flights (R; unheard joins are counted too, and also in G) and where exactly the line
+//     passes (B, A: weighted offset from the pixel centre to the nearest point on the segment, so
+//     positions are sub-pixel);
 //  2. jump flooding finds, for every pixel, the line point whose stroke covers it best. The stroke's
 //     half-width grows with flights per day at that point;
 //  3. that coverage is shaded: smooth edges, busier paths wider and lighter.
+// Lines are full strength up to FADE_KM[0] from the airport of interest (Doha unless another airport is
+// picked), then thin out and fade to nothing at FADE_KM[1]; segments wholly beyond that are skipped.
 // Without float targets the lines are blended straight onto the canvas instead (no width encoding).
-const R_MAX = 4;   // widest half-width in CSS pixels
+const R_MAX = 4;              // widest half-width in CSS pixels
+const FADE_KM = [1800, 3200]; // 1800 km from Doha covers all of Saudi Arabia; Istanbul/Delhi are ~2,600-2,700 km
+const JOIN_WEIGHT = "0.35";   // an unheard join counts this much of a flight towards line width
 let prog, segP, jInit, jStep, comp, vao, segVao, quad, nIdx = 0, nSeg = 0, acc = null;
 if (gl) {
   const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s);
@@ -241,31 +246,46 @@ if (gl) {
   const link = (vs, fs) => { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, vs));
     gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; };
-  const PROJ = `uniform vec4 u_view; uniform vec2 u_res; uniform vec2 u_origin;
+  const VIEW = `
+    uniform vec4 u_view; uniform vec2 u_res, u_origin, u_center, u_fade; uniform float u_dpr;
     vec2 project(vec2 a) {                  // a = (lat, lon) * 100  ->  CSS px from the top left
       vec2 ll = a / 100.0;
       return vec2(u_view.x + (ll.y - u_origin.x) * u_view.w * u_view.z, u_view.y + (u_origin.y - ll.x) * u_view.z);
-    }`;
+    }
+    vec2 unproject(vec2 fc) {               // gl_FragCoord (device px, y up)  ->  (lat, lon)
+      vec2 c = vec2(fc.x, u_res.y * u_dpr - fc.y) / u_dpr;
+      return vec2(u_origin.y - (c.y - u_view.y) / u_view.z, u_origin.x + (c.x - u_view.x) / (u_view.w * u_view.z));
+    }
+    float kmBetween(vec2 p, vec2 q) {       // great-circle distance, (lat, lon) degrees
+      vec2 d = radians(q - p) * 0.5;
+      float h = sin(d.x) * sin(d.x) + cos(radians(p.x)) * cos(radians(q.x)) * sin(d.y) * sin(d.y);
+      return 12742.0 * asin(min(1.0, sqrt(h)));
+    }
+    float fadeAt(vec2 ll) { return 1.0 - smoothstep(u_fade.x, u_fade.y, kmBetween(u_center, ll)); }
+    bool beyondFade(vec2 a, vec2 b) {       // segment cannot come within the fade radius
+      float d0 = kmBetween(u_center, a), d1 = kmBetween(u_center, b);
+      return min(d0, d1) - 0.55 * kmBetween(a, b) > u_fade.y;
+    }
+`;
   // fallback: plain line strips, premultiplied additive
   prog = link(`#version 300 es
-    in vec2 a_pos; in float a_gap; flat out float v_gap; ${PROJ}
+    in vec2 a_pos; in float a_gap; flat out float v_gap; out float v_fade; ${VIEW}
     void main() { vec2 p = project(a_pos);
-      gl_Position = vec4(p.x / u_res.x * 2.0 - 1.0, 1.0 - p.y / u_res.y * 2.0, 0.0, 1.0); v_gap = a_gap; }`, `#version 300 es
-    precision mediump float; flat in float v_gap; uniform vec4 u_color; uniform bool u_gaps; out vec4 o;
+      gl_Position = vec4(p.x / u_res.x * 2.0 - 1.0, 1.0 - p.y / u_res.y * 2.0, 0.0, 1.0);
+      v_gap = a_gap; v_fade = fadeAt(a_pos / 100.0); }`, `#version 300 es
+    precision mediump float; flat in float v_gap; in float v_fade; uniform vec4 u_color; uniform bool u_gaps; out vec4 o;
     void main() {
       if (v_gap > 1.5) discard;
-      bool gap = v_gap > 0.5;
-      if (gap && !u_gaps) discard;
-      float a = u_color.a * (gap ? 0.3 : 1.0);
-      o = vec4(u_color.rgb * a, a);
+      float a = u_color.a * v_fade * (u_gaps && v_gap > 0.5 ? 0.35 : 1.0);
+      o = vec4((u_gaps && v_gap > 0.5 ? vec3(0.62, 0.62, 0.58) : u_color.rgb) * a, a);
     }`);
   // step 1: one instance per segment (point i -> i+1), drawn as a quad 1 px either side of the segment
   segP = link(`#version 300 es
-    in vec2 a_p0, a_p1; in float a_flag; uniform float u_dpr; ${PROJ}
+    in vec2 a_p0, a_p1; in float a_flag; ${VIEW}
     flat out vec2 v_a, v_b; flat out float v_gap;
     void main() {
       v_gap = a_flag;
-      if (a_flag > 1.5) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }   // not drawn: off screen
+      if (a_flag > 1.5 || beyondFade(a_p0 / 100.0, a_p1 / 100.0)) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
       vec2 dev = u_res * u_dpr;
       vec2 a = project(a_p0) * u_dpr, b = project(a_p1) * u_dpr;               // device px, y down
       a.y = dev.y - a.y; b.y = dev.y - b.y;                                     // y up, like gl_FragCoord
@@ -285,20 +305,26 @@ if (gl) {
       vec2 off = v_a + ab * clamp(t, 0.0, 1.0) - f;
       float w = 1.0 - length(off);                           // tent: weights across the line sum to ~1
       if (w <= 0.0) discard;
-      o = v_gap > 0.5 ? vec4(0.0, w, 0.0, 0.0) : vec4(w, 0.0, w * off);
+      // unheard joins count less towards width, so observed corridors dominate (JOIN_WEIGHT)
+      float k = v_gap > 0.5 ? ${JOIN_WEIGHT} : 1.0;
+      o = vec4(k * w, v_gap > 0.5 ? w : 0.0, k * w * off);
     }`);
   const FS = `#version 300 es
     in vec2 a_xy; void main() { gl_Position = vec4(a_xy, 0.0, 1.0); }`;
-  const HW = `uniform float u_wk, u_dpr;
-    float halfWidth(float fpd) { return u_dpr * min(${R_MAX}.0, u_wk * (0.45 + 0.3 * log2(1.0 + fpd))); }  // device px
+  // half-width in device px at this pixel: grows with flights/day, thins out with distance from the centre
+  const HW = `uniform float u_wk;
+    float halfWidth(float fpd, float fade) {
+      return u_dpr * min(${R_MAX}.0, u_wk * (0.45 + 0.3 * log2(1.0 + fpd))) * mix(0.35, 1.0, fade);
+    }
 `;
-  // step 2a: seeds = pixels a line passes through: (offset to the line, flights per day, valid)
+  // step 2a: seeds = pixels a line passes through: (offset to the line, flights per day, unheard share);
+  // w = -1 marks "no line here"
   jInit = link(FS, `#version 300 es
-    precision highp float; uniform sampler2D u_acc; uniform float u_perDay, u_dpr; out vec4 o;
+    precision highp float; uniform sampler2D u_acc; uniform float u_perDay; ${VIEW} out vec4 o;
     void main() {
       ivec2 p = ivec2(gl_FragCoord.xy), sz = textureSize(u_acc, 0);
       vec4 a = texelFetch(u_acc, p, 0);
-      if (a.r <= 0.0) { o = vec4(0.0); return; }
+      if (a.r <= 0.0) { o = vec4(0.0, 0.0, 0.0, -1.0); return; }
       // flights near this point: line length within a disc of radius rad (~1 CSS px), divided by
       // its diameter, so one line counts ~1 at any angle and a corridor counts all its flights
       float rad = max(1.5, u_dpr), n = 0.0;
@@ -306,42 +332,42 @@ if (gl) {
         if (length(vec2(i, j)) > rad) continue;
         n += texelFetch(u_acc, clamp(p + ivec2(i, j), ivec2(0), sz - 1), 0).r;
       }
-      o = vec4(a.ba / a.r, max(n / (2.0 * rad), a.r) * u_perDay, 1.0);
+      o = vec4(a.ba / a.r, max(n / (2.0 * rad), a.r) * u_perDay, clamp(${JOIN_WEIGHT} * a.g / a.r, 0.0, 1.0));
     }`);
   // step 2b: jump flooding, keeping the seed whose stroke reaches furthest past this pixel
   jStep = link(FS, `#version 300 es
-    precision highp float; uniform sampler2D u_src; uniform int u_k; ${HW} out vec4 o;
+    precision highp float; uniform sampler2D u_src; uniform int u_k; ${VIEW} ${HW} out vec4 o;
     void main() {
       ivec2 p = ivec2(gl_FragCoord.xy), sz = textureSize(u_src, 0);
-      float best = -1e9; o = vec4(0.0);
+      float fade = fadeAt(unproject(gl_FragCoord.xy)), best = -1e9;
+      o = vec4(0.0, 0.0, 0.0, -1.0);
       for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
         ivec2 q = p + ivec2(i, j) * u_k;
         if (q.x < 0 || q.y < 0 || q.x >= sz.x || q.y >= sz.y) continue;
         vec4 s = texelFetch(u_src, q, 0);
-        if (s.w < 0.5) continue;
+        if (s.w < -0.5) continue;
         vec2 rel = vec2(q - p) + s.xy;
-        float sc = halfWidth(s.z) - length(rel);
-        if (sc > best) { best = sc; o = vec4(rel, s.z, 1.0); }
+        float sc = halfWidth(s.z, fade) - length(rel);
+        if (sc > best) { best = sc; o = vec4(rel, s.zw); }
       }
     }`);
   // step 3: shade
   comp = link(FS, `#version 300 es
-    precision highp float; uniform sampler2D u_tex, u_acc; uniform bool u_gaps; ${HW} out vec4 o;
+    precision highp float; uniform sampler2D u_tex; uniform bool u_gaps; ${VIEW} ${HW} out vec4 o;
     void main() {
-      ivec2 p = ivec2(gl_FragCoord.xy);
-      vec4 s = texelFetch(u_tex, p, 0);
-      float cov = s.w > 0.5 ? clamp(halfWidth(s.z) - length(s.xy) + 0.5, 0.0, 1.0) : 0.0;
-      // every flight visible; busier paths lighter and more opaque
+      float fade = fadeAt(unproject(gl_FragCoord.xy));
+      vec4 s = texelFetch(u_tex, ivec2(gl_FragCoord.xy), 0);
+      if (fade <= 0.0 || s.w < -0.5) discard;
+      float cov = clamp(halfWidth(s.z, fade) - length(s.xy) + 0.5, 0.0, 1.0);
+      // every flight visible; busier paths lighter and more opaque; all fade out far from the centre
       float t = clamp(log2(1.0 + s.z) / log2(101.0), 0.0, 1.0);
       vec3 col = mix(vec3(42., 108., 200.) / 255., vec3(196., 222., 252.) / 255., t * t);
-      float a = cov * mix(0.55, 1.0, t);
-      vec4 line = vec4(col * a, a);
-      if (u_gaps && cov < 1.0) {                 // unobserved straight joins: thin, dim, underneath
-        float g = min(1.0, texelFetch(u_acc, p, 0).g);
-        if (g > 0.0) { float a = 0.2 * g * (1.0 - cov); line += vec4(vec3(0.62, 0.62, 0.58) * a, a); }
-      }
-      if (line.a <= 0.0) discard;
-      o = line;
+      float a = cov * mix(0.55, 1.0, t) * fade;
+      // unheard stretches (s.w = their share here): paler; grey when "Mark unheard stretches" is on
+      if (u_gaps) { col = mix(col, vec3(0.62, 0.62, 0.58), s.w); a *= 1.0 - 0.6 * s.w; }
+      else a *= 1.0 - 0.45 * s.w;
+      if (a <= 0.0) discard;
+      o = vec4(col * a, a);
     }`);
   vao = gl.createVertexArray(); segVao = gl.createVertexArray();
   quad = gl.createVertexArray(); gl.bindVertexArray(quad);
@@ -380,7 +406,7 @@ function uploadLines(L) {
   const lp = gl.getAttribLocation(prog, "a_pos"); gl.enableVertexAttribArray(lp); gl.vertexAttribPointer(lp, 2, gl.SHORT, false, 0, 0);
   gl.bindBuffer(gl.ARRAY_BUFFER, gb);
   const lg = gl.getAttribLocation(prog, "a_gap"); gl.enableVertexAttribArray(lg); gl.vertexAttribPointer(lg, 1, gl.UNSIGNED_BYTE, false, 0, 0);
-  // segments: instance i joins point i and i+1; its flag says observed / gap / not drawn
+  // segments: instance i joins point i and i+1; its flag says observed / unheard / not drawn
   gl.bindVertexArray(segVao);
   gl.bindBuffer(gl.ARRAY_BUFFER, pb);
   for (const [name, off] of [["a_p0", 0], ["a_p1", 4]]) { const l = gl.getAttribLocation(segP, name);
@@ -407,18 +433,27 @@ function buildIndex() {
   gl.bindVertexArray(null);
   nIdx = n; nSeg = Math.max(0, L.np - 1); S.legsShown = legs;
 }
+// the airport lines fade out from: the one picked in "Flights", else Doha
+function fadeCenter() {
+  const ap = M.airports[S.airport - 1] || M.airports.find(a => a[0] === "DOH") || ["", 25.273, 51.608];
+  return [ap[1], ap[2]];
+}
 function drawGL() {
   if (!gl) return;
   const { r } = fit(glc);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, glc.width, glc.height); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
   if (S.mode !== "lines" || !nIdx) return;
-  const b = base(), L = S.lines, dpr = glc.width / r.width;
+  const b = base(), L = S.lines, dpr = glc.width / r.width, [clat, clon] = fadeCenter();
   const useAcc = acc && accTargets(glc.width, glc.height);
   const view = p => { gl.useProgram(p);
-    gl.uniform4f(gl.getUniformLocation(p, "u_view"), b.ox + S.panX, b.oy + S.panY, b.s * S.zoom, COS);
-    gl.uniform2f(gl.getUniformLocation(p, "u_res"), r.width, r.height);
-    gl.uniform2f(gl.getUniformLocation(p, "u_origin"), G.lon_min, G.lat_max); };
+    const u = n => gl.getUniformLocation(p, n);
+    gl.uniform4f(u("u_view"), b.ox + S.panX, b.oy + S.panY, b.s * S.zoom, COS);
+    gl.uniform2f(u("u_res"), r.width, r.height);
+    gl.uniform2f(u("u_origin"), G.lon_min, G.lat_max);
+    gl.uniform2f(u("u_center"), clat, clon);
+    gl.uniform2f(u("u_fade"), FADE_KM[0], FADE_KM[1]);
+    gl.uniform1f(u("u_dpr"), dpr); };
   gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
   if (!useAcc) {
     view(prog); gl.bindVertexArray(vao);
@@ -427,22 +462,20 @@ function drawGL() {
     gl.uniform4f(gl.getUniformLocation(prog, "u_color"), 0.36, 0.62, 1.0, k);
     gl.drawElements(gl.LINE_STRIP, nIdx, gl.UNSIGNED_INT, 0); return;
   }
-  const [A, P, Q] = acc.t;
+  const [A, P, Q] = acc.t, wk = Math.pow(2, S.bright / 2);
   // 1. sums
-  view(segP); gl.uniform1f(gl.getUniformLocation(segP, "u_dpr"), dpr);
+  view(segP);
   gl.bindFramebuffer(gl.FRAMEBUFFER, A.fb); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.bindVertexArray(segVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, nSeg);
   // 2. jump flooding between P and Q
   gl.disable(gl.BLEND); gl.bindVertexArray(quad); gl.activeTexture(gl.TEXTURE0);
-  const wk = Math.pow(2, S.bright / 2);
-  gl.useProgram(jInit); gl.bindFramebuffer(gl.FRAMEBUFFER, P.fb); gl.bindTexture(gl.TEXTURE_2D, A.tex);
-  gl.uniform1i(gl.getUniformLocation(jInit, "u_acc"), 0); gl.uniform1f(gl.getUniformLocation(jInit, "u_dpr"), dpr);
+  view(jInit); gl.bindFramebuffer(gl.FRAMEBUFFER, P.fb); gl.bindTexture(gl.TEXTURE_2D, A.tex);
+  gl.uniform1i(gl.getUniformLocation(jInit, "u_acc"), 0);
   // one count = this many flights per day (a random sample stands for all flights of its days)
   gl.uniform1f(gl.getUniformLocation(jInit, "u_perDay"), 1 / Math.max(1, L.days) / (L.sampled ? L.nl / L.total : 1));
   gl.drawArrays(gl.TRIANGLES, 0, 3);
-  gl.useProgram(jStep);
-  gl.uniform1i(gl.getUniformLocation(jStep, "u_src"), 0);
-  gl.uniform1f(gl.getUniformLocation(jStep, "u_wk"), wk); gl.uniform1f(gl.getUniformLocation(jStep, "u_dpr"), dpr);
+  view(jStep);
+  gl.uniform1i(gl.getUniformLocation(jStep, "u_src"), 0); gl.uniform1f(gl.getUniformLocation(jStep, "u_wk"), wk);
   let src = P, dst = Q;
   for (let k = 1 << Math.ceil(Math.log2(R_MAX * dpr + 1)); ; k >>= 1) {
     for (let rep = 0; rep < (k === 1 ? 2 : 1); rep++) {           // an extra 1-step tidies the result
@@ -455,11 +488,9 @@ function drawGL() {
   // 3. shade onto the canvas
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  gl.useProgram(comp);
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src.tex);
-  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, A.tex); gl.activeTexture(gl.TEXTURE0);
-  gl.uniform1i(gl.getUniformLocation(comp, "u_tex"), 0); gl.uniform1i(gl.getUniformLocation(comp, "u_acc"), 1);
-  gl.uniform1f(gl.getUniformLocation(comp, "u_wk"), wk); gl.uniform1f(gl.getUniformLocation(comp, "u_dpr"), dpr);
+  view(comp); gl.bindTexture(gl.TEXTURE_2D, src.tex);
+  gl.uniform1i(gl.getUniformLocation(comp, "u_tex"), 0);
+  gl.uniform1f(gl.getUniformLocation(comp, "u_wk"), wk);
   gl.uniform1i(gl.getUniformLocation(comp, "u_gaps"), S.gaps ? 1 : 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
@@ -517,10 +548,10 @@ function legend() {
   const el = $("legend");
   if (S.mode === "lines") {
     const wk = Math.pow(2, S.bright / 2), w = f => Math.max(1, 2 * Math.min(R_MAX, wk * (0.45 + 0.3 * Math.log2(1 + f))));
-    el.innerHTML = `<div>One line per flight, drawn only where receivers heard it. Thicker = more flights per day on that path.</div>
+    el.innerHTML = `<div>One line per flight. Thicker = more flights per day on that path. Lines fade out beyond ~1,800 km from ${M.airports[S.airport - 1] ? M.airports[S.airport - 1][0] : "Doha"}.</div>
       <div class="lineKey">${[[1 / 7, "1 / week"], [1, "1 / day"], [10, "10 / day"], [100, "100+ / day"]]
         .map(([f, t]) => `<span><i style="border-top-width:${w(f).toFixed(1)}px"></i>${t}</span>`).join("")}</div>` +
-      (S.gaps ? `<div class="lineKey"><span><i class="gap"></i>gap: no reports for 5+ min, straight join</span></div>` : "");
+      (S.gaps ? `<div class="lineKey"><span><i class="gap"></i>unheard for 5+ min: straight join</span></div>` : "");
     return;
   }
   el.innerHTML = `<div id="legTitle"></div><canvas id="legBar" width="220" height="10"></canvas><div class="ticks" id="legTicks"></div>`;
