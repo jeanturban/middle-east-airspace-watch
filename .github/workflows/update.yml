@@ -1,0 +1,87 @@
+name: Daily flight data update
+
+on:
+  schedule:
+    - cron: "17 9 * * *"     # daily, 09:17 UTC (adsb.lol uploads the previous day overnight)
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days back to fill"
+        default: "90"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      todo: ${{ steps.plan.outputs.todo }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: echo "todo=$(python3 pipeline/update.py plan --days ${{ inputs.days || 90 }})" >> "$GITHUB_OUTPUT"
+
+  process:
+    needs: plan
+    if: needs.plan.outputs.todo != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        day: ${{ fromJson(needs.plan.outputs.todo) }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install orjson
+      - name: Stream ${{ matrix.day.date }} from adsb.lol and grid it
+        run: |
+          set -o pipefail
+          curl -sSfL --retry 5 --retry-delay 20 ${{ join(matrix.day.urls, ' ') }} \
+            | python3 pipeline/process_day.py ${{ matrix.day.date }} out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: day-${{ matrix.day.date }}
+          path: out/${{ matrix.day.date }}.json
+          retention-days: 3
+
+  publish:
+    needs: [plan, process]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: day-*
+          path: incoming
+          merge-multiple: true
+        continue-on-error: true
+      - name: Commit new days and rebuild manifest
+        run: |
+          mkdir -p data/days
+          cp incoming/*.json data/days/ 2>/dev/null || true
+          python3 pipeline/update.py manifest
+          git config user.name "flight-data-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "data: update $(date -u +%F)"
+          git push
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp -r site/* _site/
+          cp -r data _site/data
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - uses: actions/deploy-pages@v4

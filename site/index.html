@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Middle East Airspace Watch</title>
+<style>
+  :root {
+    --surface: #1a1a19; --surface-2: #232321; --water: #121211; --land: #24241f;
+    --border: #3a3a36; --text: #f0efec; --text-2: #c3c2b7; --text-3: #8f8e86;
+    --blue: #3987e5; --red: #e66767; --base: #a9a89f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--surface); color: var(--text);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: grid; grid-template-rows: auto auto 1fr auto; height: 100vh; }
+  header { padding: 12px 16px 6px; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  h1 { font-size: 16px; font-weight: 600; margin: 0; }
+  .meta { color: var(--text-3); font-size: 12px; }
+  .demo { background: #5a3d10; color: #ffd89a; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; }
+  .bar { display: flex; gap: 10px; align-items: center; padding: 6px 16px 8px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+  .seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px; }
+  .seg button { background: none; border: 0; color: var(--text-2); padding: 4px 10px; border-radius: 4px; cursor: pointer; font: inherit; }
+  .seg button.on { background: #3a3a36; color: var(--text); }
+  .seg button:focus-visible, .btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+  .btn { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 4px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
+  .lbl { color: var(--text-3); font-size: 12px; }
+  .stat { color: var(--text-2); font-size: 12px; margin-left: auto; text-align: right; }
+  .stat b { color: var(--text); font-weight: 600; }
+  #mapwrap { position: relative; overflow: hidden; min-height: 300px; }
+  #map { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+  #map.drag { cursor: grabbing; }
+  #tip { position: absolute; pointer-events: none; background: rgba(26,26,25,.94); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font-size: 12px; color: var(--text); display: none; white-space: nowrap; z-index: 3; }
+  #tip .s { color: var(--text-3); }
+  #legend { position: absolute; left: 12px; bottom: 12px; background: rgba(26,26,25,.88); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; font-size: 11px; color: var(--text-2); z-index: 2; }
+  #legend canvas { display: block; width: 220px; height: 10px; border-radius: 2px; margin: 4px 0 2px; }
+  #legend .ticks { display: flex; justify-content: space-between; color: var(--text-3); }
+  #zoom { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 4px; z-index: 2; }
+  #zoom .btn { width: 30px; padding: 4px 0; }
+  #note { position: absolute; right: 12px; bottom: 12px; max-width: 300px; background: rgba(26,26,25,.88); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; font-size: 11px; color: var(--text-3); z-index: 2; }
+  #note b { color: var(--text-2); font-weight: 600; }
+  footer { border-top: 1px solid var(--border); padding: 6px 16px 10px; }
+  .tlhead { display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--text-2); margin-bottom: 2px; flex-wrap: wrap; }
+  .key { display: inline-flex; align-items: center; gap: 5px; }
+  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  #timeline { width: 100%; height: 86px; display: block; user-select: none; cursor: crosshair; touch-action: none; }
+  .hide { display: none !important; }
+  @media (max-width: 700px) { #note { display: none; } .stat { margin-left: 0; text-align: left; width: 100%; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Middle East Airspace Watch</h1>
+  <span class="meta" id="source">Loading…</span>
+  <span class="demo hide" id="demo">SYNTHETIC DEMO DATA, not real flights</span>
+</header>
+
+<div class="bar">
+  <div class="seg" id="mode" role="tablist">
+    <button data-v="density" class="on" role="tab">Traffic density</button>
+    <button data-v="compare" role="tab">Compare periods</button>
+  </div>
+  <span class="lbl" id="presetLbl">Range</span>
+  <div class="seg" id="presets">
+    <button data-v="7">7 days</button><button data-v="30">30 days</button><button data-v="90">All</button>
+  </div>
+  <div class="seg hide" id="editing">
+    <button data-v="base">Edit baseline</button><button data-v="cmp" class="on">Edit recent</button>
+  </div>
+  <button class="btn" id="play" title="Slide a 7-day window across the whole period">▶ Play weekly</button>
+  <div class="stat" id="stat"></div>
+</div>
+
+<div id="mapwrap">
+  <canvas id="map" aria-label="Map of flight density over the Middle East"></canvas>
+  <div id="tip"></div>
+  <div id="zoom"><button class="btn" id="zin" aria-label="Zoom in">+</button><button class="btn" id="zout" aria-label="Zoom out">−</button><button class="btn" id="zreset" aria-label="Reset view">⟲</button></div>
+  <div id="legend"><div id="legTitle"></div><canvas id="legBar" width="220" height="10"></canvas><div class="ticks" id="legTicks"></div></div>
+  <div id="note"><b>Reading this map.</b> Each cell counts flights (civil, airborne) that crossed it per day. Dark areas can mean aircraft avoid them <i>or</i> that no receivers cover them, so compare periods: a cell that goes from busy to empty is a real change. Military aircraft are excluded.</div>
+</div>
+
+<footer>
+  <div class="tlhead">
+    <span>Flights per day in the region. Drag to choose dates.</span>
+    <span class="key" id="kSel"><span class="sw" style="background:var(--blue)"></span><span id="kSelTxt">Selected</span></span>
+    <span class="key hide" id="kBase"><span class="sw" style="background:var(--base)"></span>Baseline</span>
+    <span class="key hide" id="kEvt"><span style="color:var(--text)">◆</span>Event</span>
+    <span id="rangeTxt" style="margin-left:auto;color:var(--text)"></span>
+  </div>
+  <svg id="timeline"></svg>
+</footer>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const S = { mode: "density", sel: [0, 0], base: [0, 0], editing: "cmp", cache: new Map(),
+            zoom: 1, panX: 0, panY: 0, playing: null, field: null };
+let G, M, BM, EV = [];
+const AIRPORTS = [["DOH",25.27,51.61],["DXB",25.25,55.36],["AUH",24.43,54.65],["RUH",24.96,46.70],["JED",21.68,39.16],
+  ["KWI",29.24,47.97],["BAH",26.27,50.63],["MCT",23.59,58.28],["IST",41.26,28.74],["CAI",30.12,31.41],["AMM",31.72,35.99],
+  ["BGW",33.26,44.23],["IKA",35.42,51.15],["TLV",32.01,34.89],["BEY",33.82,35.49],["DMM",26.47,49.80],["SAH",15.48,44.22],
+  ["ADE",12.83,45.03],["MED",24.55,39.71],["EBL",36.24,43.96],["SYZ",29.54,52.59],["KHI",24.90,67.17],["DAM",33.41,36.52]];
+
+// ---------- data ----------
+async function getJSON(p) { const r = await fetch(p); if (!r.ok) throw new Error(p + " " + r.status); return r.json(); }
+async function loadDay(date) {
+  if (S.cache.has(date)) return S.cache.get(date);
+  const p = getJSON(`data/days/${date}.json`).then(d => {
+    const a = new Float32Array(G.w * G.h); let idx = 0; const c = d.cells;
+    for (let i = 0; i < c.length; i += 2) { idx += c[i]; a[idx] = c[i + 1]; }
+    return a;
+  }).catch(() => null);
+  S.cache.set(date, p); return p;
+}
+async function average([i0, i1]) {
+  const arrs = await Promise.all(M.days.slice(i0, i1 + 1).map(d => loadDay(d.date)));
+  const out = new Float32Array(G.w * G.h); let n = 0;
+  for (const a of arrs) { if (!a) continue; n++; for (let i = 0; i < out.length; i++) out[i] += a[i]; }
+  if (n) for (let i = 0; i < out.length; i++) out[i] /= n;
+  return out;
+}
+
+// ---------- colour ----------
+// sequential blue ramp from the validated palette, dark surface: low recedes, high is light
+const SEQ = [[24,79,149],[42,120,214],[85,152,231],[134,182,239],[205,226,251],[245,249,255]];
+function lerpRamp(r, t) { t = Math.max(0, Math.min(1, t)) * (r.length - 1); const i = Math.min(r.length - 2, Math.floor(t)), f = t - i;
+  return r[i].map((v, k) => v + (r[i + 1][k] - v) * f); }
+const RED = [230,103,103], BLUE = [57,135,229], MID = [56,56,53];
+function divColor(t) { // t in [-1,1]; -1 = fewer flights (red), +1 = more (blue)
+  const c = t < 0 ? RED : BLUE, f = Math.min(1, Math.abs(t));
+  return MID.map((v, k) => v + (c[k] - v) * f);
+}
+function quantile(arr, q) { const v = []; for (const x of arr) if (x > 0) v.push(x); if (!v.length) return 1;
+  v.sort((a, b) => a - b); return v[Math.min(v.length - 1, Math.floor(q * v.length))]; }
+
+const off = document.createElement("canvas");
+async function buildField() {
+  off.width = G.w; off.height = G.h;
+  const octx = off.getContext("2d"), img = octx.createImageData(G.w, G.h), px = img.data;
+  if (S.mode === "density") {
+    const f = await average(S.sel); const vmax = Math.max(1, quantile(f, 0.995)); const L = Math.log1p(vmax);
+    for (let i = 0; i < f.length; i++) { if (f[i] <= 0) continue; const t = Math.log1p(f[i]) / L;
+      const c = lerpRamp(SEQ, t); px.set([c[0], c[1], c[2], Math.round(255 * Math.min(1, 0.25 + t * 0.9))], i * 4); }
+    S.field = { a: f }; S.vmax = vmax;
+  } else {
+    const [a, b] = await Promise.all([average(S.base), average(S.sel)]);
+    const ref = Math.max(1, quantile(a.map((x, i) => Math.max(x, b[i])), 0.99)), L = Math.log1p(ref);
+    for (let i = 0; i < a.length; i++) { const m = Math.max(a[i], b[i]); if (m < 0.3) continue;
+      const t = (b[i] - a[i]) / m;                     // relative change, -1..1
+      const w = Math.min(1, Math.log1p(m) / L);          // busier cells drawn stronger
+      const c = divColor(t); px.set([c[0], c[1], c[2], Math.round(255 * (0.15 + 0.85 * w) * (0.35 + 0.65 * Math.abs(t)))], i * 4); }
+    S.field = { a, b };
+  }
+  octx.putImageData(img, 0, 0);
+}
+
+// ---------- projection ----------
+const cv = $("map"), ctx = cv.getContext("2d"); const COS = Math.cos(26 * Math.PI / 180);
+function base() { const r = cv.getBoundingClientRect(); const wu = (G.lon_max - G.lon_min) * COS, hu = G.lat_max - G.lat_min;
+  const s = Math.min(r.width / wu, r.height / hu); return { s, ox: (r.width - wu * s) / 2, oy: (r.height - hu * s) / 2, r }; }
+function proj(lat, lon) { const b = base(), s = b.s * S.zoom;
+  return [b.ox + S.panX + (lon - G.lon_min) * COS * s, b.oy + S.panY + (G.lat_max - lat) * s]; }
+function unproj(x, y) { const b = base(), s = b.s * S.zoom;
+  return [G.lat_max - (y - b.oy - S.panY) / s, G.lon_min + (x - b.ox - S.panX) / (COS * s)]; }
+
+// ---------- draw ----------
+function ringPath(ring) { ctx.beginPath(); ring.forEach(([lon, lat], i) => { const [x, y] = proj(lat, lon); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath(); }
+function draw() {
+  const dpr = devicePixelRatio || 1, r = cv.getBoundingClientRect();
+  if (cv.width !== Math.round(r.width * dpr)) { cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#121211"; ctx.fillRect(0, 0, r.width, r.height);
+  ctx.fillStyle = "#24241f"; for (const c of BM.countries) for (const ring of c.rings) { ringPath(ring); ctx.fill(); }
+  ctx.fillStyle = "#121211"; for (const l of BM.lakes) for (const ring of l.rings) { ringPath(ring); ctx.fill(); }
+  // heat layer
+  const [x0, y0] = proj(G.lat_max, G.lon_min), [x1, y1] = proj(G.lat_min, G.lon_max);
+  ctx.imageSmoothingEnabled = S.zoom < 3; ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = 1;
+  ctx.drawImage(off, x0, y0, x1 - x0, y1 - y0); ctx.globalCompositeOperation = "source-over";
+  // borders
+  ctx.strokeStyle = "rgba(195,194,183,.28)"; ctx.lineWidth = 0.8;
+  for (const c of BM.countries) for (const ring of c.rings) { ringPath(ring); ctx.stroke(); }
+  // data box outline
+  ctx.strokeStyle = "rgba(195,194,183,.15)"; ctx.setLineDash([3, 4]); ctx.strokeRect(x0, y0, x1 - x0, y1 - y0); ctx.setLineDash([]);
+  // labels
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = "600 11px system-ui, sans-serif"; ctx.fillStyle = "rgba(195,194,183,.55)";
+  for (const c of BM.countries) { if (c.rank > 4 + Math.log2(S.zoom) * 2) continue; const [x, y] = proj(c.label[1], c.label[0]);
+    if (x > 0 && y > 0 && x < r.width && y < r.height) ctx.fillText(c.name.toUpperCase(), x, y); }
+  ctx.font = "10px system-ui, sans-serif"; ctx.textAlign = "left";
+  for (const [code, lat, lon] of AIRPORTS) { const [x, y] = proj(lat, lon);
+    ctx.fillStyle = "#f0efec"; ctx.beginPath(); ctx.arc(x, y, 2, 0, 7); ctx.fill();
+    ctx.fillStyle = "rgba(240,239,236,.8)"; ctx.fillText(code, x + 4, y - 5); }
+  // events in the selected range
+  const from = M.days[S.sel[0]].date, to = M.days[S.sel[1]].date;
+  for (const e of EV) { if (e.date < from || e.date > to) continue; const [x, y] = proj(e.lat, e.lon);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(Math.PI / 4); ctx.fillStyle = "#f0efec"; ctx.strokeStyle = "#1a1a19"; ctx.lineWidth = 2;
+    ctx.strokeRect(-4, -4, 8, 8); ctx.fillRect(-4, -4, 8, 8); ctx.restore(); }
+}
+
+// ---------- legend + stats ----------
+function legend() {
+  const c = $("legBar"), g = c.getContext("2d");
+  for (let x = 0; x < 220; x++) { const t = x / 219;
+    const col = S.mode === "density" ? lerpRamp(SEQ, t) : divColor(t * 2 - 1);
+    g.fillStyle = `rgb(${col.map(Math.round).join(",")})`; g.fillRect(x, 0, 1, 10); }
+  if (S.mode === "density") {
+    $("legTitle").textContent = "Avg flights per day crossing each ~11 km cell";
+    const v = S.vmax, ticks = [0, 0.33, 0.66, 1].map(t => Math.expm1(t * Math.log1p(v)));
+    $("legTicks").innerHTML = ticks.map(t => `<span>${t < 10 ? t.toFixed(t < 1 ? 1 : 0) : Math.round(t)}${t === ticks[3] ? "+" : ""}</span>`).join("");
+  } else {
+    $("legTitle").textContent = "Change in flights, recent vs baseline";
+    $("legTicks").innerHTML = "<span>−100% fewer</span><span>no change</span><span>more +</span>";
+  }
+}
+const fmtD = d => new Date(d + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+const span = ([a, b]) => `${fmtD(M.days[a].date)} – ${fmtD(M.days[b].date)}`;
+const avgLegs = ([a, b]) => { const d = M.days.slice(a, b + 1); return d.reduce((s, x) => s + x.legs, 0) / d.length; };
+function stats() {
+  if (S.mode === "density") {
+    $("stat").innerHTML = `<b>${Math.round(avgLegs(S.sel)).toLocaleString()}</b> flights/day in region · ${span(S.sel)}`;
+    $("rangeTxt").textContent = span(S.sel);
+  } else {
+    const a = avgLegs(S.base), b = avgLegs(S.sel), ch = (b - a) / a * 100;
+    $("stat").innerHTML = `Baseline <b>${Math.round(a).toLocaleString()}</b>/day → recent <b>${Math.round(b).toLocaleString()}</b>/day (${ch >= 0 ? "+" : "−"}${Math.abs(ch).toFixed(0)}%)`;
+    $("rangeTxt").textContent = `Baseline ${span(S.base)} · Recent ${span(S.sel)}`;
+  }
+}
+
+// ---------- timeline ----------
+const svg = $("timeline"); const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent && parent.appendChild(e); return e; }
+function timeline() {
+  const W = svg.clientWidth, H = 86, pad = { l: 36, r: 8, t: 14, b: 18 }, n = M.days.length;
+  const bw = (W - pad.l - pad.r) / n, max = Math.max(...M.days.map(d => d.legs)) * 1.05;
+  svg.innerHTML = ""; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const y = v => pad.t + (H - pad.t - pad.b) * (1 - v / max);
+  for (const t of [0, max / 2]) { el("line", { x1: pad.l, x2: W - pad.r, y1: y(t), y2: y(t), stroke: "#3a3a36", "stroke-width": 1 }, svg);
+    el("text", { x: pad.l - 6, y: y(t) + 3, "text-anchor": "end", fill: "#8f8e86", "font-size": 10 }, svg).textContent = Math.round(t).toLocaleString(); }
+  const inR = (i, [a, b]) => i >= a && i <= b;
+  M.days.forEach((d, i) => {
+    const col = inR(i, S.sel) ? "#3987e5" : (S.mode === "compare" && inR(i, S.base)) ? "#a9a89f" : "#3a3a36";
+    const r = el("rect", { x: pad.l + i * bw + 0.5, y: y(d.legs), width: Math.max(1, bw - 1.5), height: Math.max(1, y(0) - y(d.legs)), fill: col, rx: Math.min(2, bw / 3) }, svg);
+    el("title", {}, r).textContent = `${fmtD(d.date)}: ${d.legs.toLocaleString()} flights`;
+    const dt = new Date(d.date + "T00:00:00Z");
+    if (dt.getUTCDate() === 1) el("text", { x: pad.l + i * bw, y: H - 4, fill: "#8f8e86", "font-size": 10 }, svg).textContent = dt.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" });
+  });
+  for (const e of EV) { const i = M.days.findIndex(d => d.date === e.date); if (i < 0) continue;
+    const t = el("text", { x: pad.l + (i + 0.5) * bw, y: 10, "text-anchor": "middle", fill: "#f0efec", "font-size": 10 }, svg); t.textContent = "◆";
+    el("title", {}, t).textContent = `${fmtD(e.date)}: ${e.title}`; }
+  svg._geo = { pad, bw, n };
+}
+function idxAt(ev) { const g = svg._geo, r = svg.getBoundingClientRect();
+  return Math.max(0, Math.min(g.n - 1, Math.floor((ev.clientX - r.left - g.pad.l) / g.bw))); }
+let brush = null;
+svg.addEventListener("pointerdown", e => { stopPlay(); brush = idxAt(e); svg.setPointerCapture(e.pointerId); setRange([brush, brush], false); });
+svg.addEventListener("pointermove", e => { if (brush === null) return; const i = idxAt(e); setRange([Math.min(brush, i), Math.max(brush, i)], false); });
+svg.addEventListener("pointerup", e => { if (brush === null) return; const i = idxAt(e); setRange([Math.min(brush, i), Math.max(brush, i)], true); brush = null; });
+
+function setRange(r, rebuild) {
+  if (S.mode === "compare" && S.editing === "base") S.base = r; else S.sel = r;
+  timeline(); stats(); if (rebuild) refresh();
+}
+
+// ---------- refresh ----------
+let token = 0;
+async function refresh() { const my = ++token; await buildField(); if (my !== token) return; legend(); stats(); draw(); }
+
+// ---------- controls ----------
+function seg(id, fn) { $(id).addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return;
+  [...$(id).children].forEach(c => c.classList.toggle("on", c === b)); fn(b.dataset.v); }); }
+seg("mode", v => { stopPlay(); S.mode = v; const c = v === "compare";
+  $("editing").classList.toggle("hide", !c); $("kBase").classList.toggle("hide", !c); $("play").classList.toggle("hide", c);
+  $("kSelTxt").textContent = c ? "Recent" : "Selected"; $("presetLbl").textContent = c ? "Recent" : "Range";
+  const n = M.days.length;
+  if (c) { S.base = [0, Math.min(n - 1, 29)]; S.sel = [Math.max(0, n - 14), n - 1]; S.editing = "cmp";
+    [...$("editing").children].forEach(b => b.classList.toggle("on", b.dataset.v === "cmp")); }
+  else S.sel = [Math.max(0, n - 7), n - 1];
+  [...$("presets").children].forEach(b => b.classList.toggle("on", !c && b.dataset.v === "7"));
+  timeline(); refresh(); });
+seg("presets", v => { stopPlay(); const n = M.days.length, k = Math.min(n, +v);
+  if (S.mode === "compare" && S.editing === "base") S.base = [0, Math.min(n - 1, k - 1)]; else S.sel = [n - k, n - 1];
+  timeline(); refresh(); });
+seg("editing", v => { S.editing = v; });
+function stopPlay() { if (S.playing) { clearInterval(S.playing); S.playing = null; $("play").textContent = "▶ Play weekly"; } }
+$("play").onclick = () => {
+  if (S.playing) return stopPlay();
+  let i = 0; const n = M.days.length; $("play").textContent = "■ Stop";
+  const step = async () => { if (i + 6 >= n) return stopPlay(); S.sel = [i, i + 6]; timeline(); stats(); await refresh(); i++; };
+  step(); S.playing = setInterval(step, 450);
+};
+
+// zoom & pan
+function zoomAt(f, x, y) { const nz = Math.max(1, Math.min(12, S.zoom * f)); f = nz / S.zoom; const b = base();
+  S.panX = x - b.ox - (x - b.ox - S.panX) * f; S.panY = y - b.oy - (y - b.oy - S.panY) * f; S.zoom = nz;
+  if (nz === 1) { S.panX = S.panY = 0; } draw(); }
+cv.addEventListener("wheel", e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+let drag = null;
+cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, px: S.panX, py: S.panY }; cv.setPointerCapture(e.pointerId); cv.classList.add("drag"); });
+cv.addEventListener("pointerup", () => { drag = null; cv.classList.remove("drag"); });
+cv.addEventListener("pointermove", e => {
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  if (drag) { S.panX = drag.px + e.clientX - drag.x; S.panY = drag.py + e.clientY - drag.y; draw(); $("tip").style.display = "none"; return; }
+  hover(x, y);
+});
+cv.addEventListener("pointerleave", () => $("tip").style.display = "none");
+$("zin").onclick = () => { const r = cv.getBoundingClientRect(); zoomAt(1.5, r.width / 2, r.height / 2); };
+$("zout").onclick = () => { const r = cv.getBoundingClientRect(); zoomAt(1 / 1.5, r.width / 2, r.height / 2); };
+$("zreset").onclick = () => { S.zoom = 1; S.panX = S.panY = 0; draw(); };
+
+function hover(x, y) {
+  const tip = $("tip"); if (!S.field) return;
+  const [lat, lon] = unproj(x, y);
+  const c = Math.floor((lon - G.lon_min) / G.res), r = Math.floor((G.lat_max - lat) / G.res);
+  if (c < 0 || r < 0 || c >= G.w || r >= G.h) { tip.style.display = "none"; return; }
+  const i = r * G.w + c, pos = `${lat.toFixed(1)}°N ${lon.toFixed(1)}°E`;
+  const from = M.days[S.sel[0]].date, to = M.days[S.sel[1]].date;
+  const ev = EV.find(e => e.date >= from && e.date <= to && Math.hypot(...(([ex, ey]) => [ex - x, ey - y])(proj(e.lat, e.lon))) < 8);
+  let html;
+  if (ev) html = `<b>${ev.title}</b><br><span class="s">${fmtD(ev.date)} · ${ev.type || "event"}</span>`;
+  else if (S.mode === "density") html = `<b>${fmtN(S.field.a[i])}</b> flights/day<br><span class="s">${pos}</span>`;
+  else { const a = S.field.a[i], b = S.field.b[i], ch = a > 0 ? ((b - a) / a * 100) : null;
+    html = `Baseline <b>${fmtN(a)}</b>/day → recent <b>${fmtN(b)}</b>/day${ch === null ? "" : ` (${ch >= 0 ? "+" : "−"}${Math.abs(ch).toFixed(0)}%)`}<br><span class="s">${pos}</span>`; }
+  tip.innerHTML = html; tip.style.display = "block";
+  const w = tip.offsetWidth, cw = cv.clientWidth; tip.style.left = Math.min(x + 14, cw - w - 4) + "px"; tip.style.top = (y + 14) + "px";
+}
+const fmtN = v => v >= 10 ? Math.round(v).toLocaleString() : v.toFixed(1);
+
+// ---------- boot ----------
+(async () => {
+  try {
+    [M, BM] = await Promise.all([getJSON("data/manifest.json"), getJSON("data/basemap.json")]);
+    try { EV = (await getJSON("data/events.json")).events || []; } catch (e) { EV = []; }
+  } catch (e) { $("source").textContent = "Could not load data: " + e.message; return; }
+  G = M.grid; const n = M.days.length;
+  if (!n) { $("source").textContent = "No data yet: the first pipeline run has not finished."; return; }
+  $("demo").classList.toggle("hide", !M.demo);
+  $("kEvt").classList.toggle("hide", !EV.length);
+  $("source").textContent = `${M.demo ? "" : M.source + " · "}${n} days · last day ${fmtD(M.days[n - 1].date)} · updated ${M.generated.slice(0, 10)}`;
+  S.sel = [Math.max(0, n - 7), n - 1];
+  S.base = [0, Math.min(n - 1, Math.max(6, Math.floor(n / 3)))];
+  [...$("presets").children].forEach(b => b.classList.toggle("on", b.dataset.v === "7"));
+  timeline(); await refresh();
+  new ResizeObserver(() => { timeline(); draw(); }).observe($("mapwrap"));
+})();
+</script>
+</body>
+</html>
