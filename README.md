@@ -9,16 +9,23 @@ changes over time. Updated daily from adsb.lol's open data (ODbL 1.0), with a 90
 adsb.lol globe_history (GitHub releases, ~3.6 GB/day, previous day)
    │  streamed, never extracted to disk
    ▼
-pipeline/process_day.py  → data/days/YYYY-MM-DD.json   (flights per 0.1° cell, sparse)
+pipeline/process_day.py  → data/lines/YYYY-MM-DD.s0-3.bin  (full path of every flight crossing the region)
+                         → data/days/YYYY-MM-DD.json      (flights per 0.1° cell, sparse)
 pipeline/update.py       → data/manifest.json          (day list + daily totals)
    ▼
-site/index.html          (static page: density map, compare mode, weekly playback, events)
+site/index.html          (static page: flight lines, heatmap, compare mode, weekly playback, events)
 ```
 
 * **Box:** 25–65°E, 10–42°N (Egypt → Pakistan border, Yemen → Caucasus). Change it in `pipeline/grid.py`.
 * **Counting:** each flight leg adds 1 to every cell it crosses, once. Airborne points ≥1,000 ft only,
   military aircraft (adsb.lol `dbFlags & 1`) excluded. Gaps between position reports are bridged with a
   straight line only if ≤20 min and ≤300 km, so coverage holes are not filled with invented lines.
+* **Flight paths:** every leg that passes through the box is kept start to finish, wherever it flies
+  (simplified to ~3 km, coordinates to 0.01°). Origin/destination are tagged when the leg starts/ends low
+  near an airport in `pipeline/airports.py`. Each day is split into 4 random shards; for long date
+  ranges the viewer loads fewer shards, i.e. a random sample, to stay under ~150k lines. Line files older
+  than 180 days are pruned (`KEEP_LINE_DAYS` in `pipeline/update.py`); the small density grids are kept.
+  Flights crossing midnight UTC appear as two pieces on consecutive days.
 * **Compare mode:** relative change per cell between a baseline and a recent window, normalised per day.
 
 ## Run it

@@ -12,8 +12,8 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from grid import LON_MIN, LON_MAX, LAT_MIN, LAT_MAX  # noqa: E402
 
-PAD = 4.0
-TOL = 0.03  # simplification tolerance in degrees
+PAD = 400.0  # whole world: flight paths run far outside the analysis box
+TOL = 0.06  # simplification tolerance in degrees
 
 
 def dp(pts, tol):
@@ -58,7 +58,7 @@ def cut(path, with_names):
             x0, y0 = ring[0]
             k = max(range(len(ring)), key=lambda i: (ring[i][0] - x0) ** 2 + (ring[i][1] - y0) ** 2)
             s = dp(ring[: k + 1], TOL)[:-1] + dp(ring[k:], TOL)
-            if len(s) >= 4:
+            if len(s) >= 4 and (len(s) >= 6 or max(abs(a[0]-b[0]) + abs(a[1]-b[1]) for a in s for b in s[:1]) > 0.3):
                 rings.append([[round(x, 2), round(y, 2)] for x, y in s])
         if rings:
             p = f["properties"]

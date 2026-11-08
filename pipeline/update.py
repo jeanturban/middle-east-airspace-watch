@@ -43,25 +43,46 @@ def published(years):
     return out
 
 
+LINES_DIR = os.path.join(ROOT, "data", "lines")
+KEEP_LINE_DAYS = 180   # full-path files are ~1-2 MB/day; older ones are pruned (density grids are kept)
+
+
 def plan(days, max_n):
     today = dt.date.today()
     window = {str(today - dt.timedelta(d)) for d in range(1, days + 1)}
-    have = {f[:-5] for f in os.listdir(DAYS_DIR)} if os.path.isdir(DAYS_DIR) else set()
+    # a day counts as done once both its density grid and its line shards exist
+    have = set()
+    if os.path.isdir(DAYS_DIR) and os.path.isdir(LINES_DIR):
+        lines = set(os.listdir(LINES_DIR))
+        have = {f[:-5] for f in os.listdir(DAYS_DIR) if f"{f[:-5]}.s0.bin" in lines}
     avail = published({int(d[:4]) for d in window})
     todo = sorted((d for d in window if d in avail and d not in have), reverse=True)[:max_n]
     print(json.dumps([{"date": d, "urls": avail[d]} for d in todo]))
 
 
-def manifest():
+def prune_lines():
+    if not os.path.isdir(LINES_DIR):
+        return
+    cutoff = str(dt.date.today() - dt.timedelta(KEEP_LINE_DAYS))
+    for f in os.listdir(LINES_DIR):
+        if f[:10] < cutoff:
+            os.remove(os.path.join(LINES_DIR, f))
+
+
+def manifest(demo=False, source="adsb.lol globe_history (ODbL 1.0)"):
+    from airports import AIRPORTS
+    prune_lines()
+    lines = set(os.listdir(LINES_DIR)) if os.path.isdir(LINES_DIR) else set()
     days = []
     for f in sorted(os.listdir(DAYS_DIR)):
         if f.endswith(".json"):
             with open(os.path.join(DAYS_DIR, f)) as fh:
                 d = json.load(fh)
-            days.append({"date": d["date"], "legs": d["legs"], "aircraft": d["aircraft"]})
-    m = {"generated": dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-         "source": "adsb.lol globe_history (ODbL 1.0)", "demo": False,
-         "grid": spec(), "days": days}
+            shards = sum(1 for k in range(8) if f"{d['date']}.s{k}.bin" in lines)
+            days.append({"date": d["date"], "legs": d["legs"], "aircraft": d["aircraft"], "shards": shards})
+    m = {"generated": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+         "source": source, "demo": demo,
+         "grid": spec(), "airports": [list(a) for a in AIRPORTS], "days": days}
     with open(os.path.join(ROOT, "data", "manifest.json"), "w") as fh:
         json.dump(m, fh, indent=1)
     print(f"manifest: {len(days)} days", file=sys.stderr)

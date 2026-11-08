@@ -49,7 +49,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: day-${{ matrix.day.date }}
-          path: out/${{ matrix.day.date }}.json
+          path: out/
           retention-days: 3
 
   publish:
@@ -68,13 +68,15 @@ jobs:
         continue-on-error: true
       - name: Commit new days and rebuild manifest
         run: |
-          mkdir -p data/days
-          cp incoming/*.json data/days/ 2>/dev/null || true
+          mkdir -p data/days data/lines
+          cp incoming/days/*.json data/days/ 2>/dev/null || true
+          cp incoming/lines/*.bin data/lines/ 2>/dev/null || true
           python3 pipeline/update.py manifest
           git config user.name "flight-data-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data
           git diff --cached --quiet || git commit -m "data: update $(date -u +%F)"
+          git pull --rebase --autostash origin main
           git push
       - name: Assemble site
         run: |

@@ -16,15 +16,18 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 from grid import W, H, cell, spec  # noqa: E402
-from process_day import raster_segment  # noqa: E402
+from process_day import raster_segment, pack_shard, SHARDS  # noqa: E402
+from airports import AIRPORTS  # noqa: E402
+CODE = {c: i + 1 for i, (c, _, _) in enumerate(AIRPORTS)}
+GATE = {"_EU": "LHR", "_EU2": "FRA", "_IN": "BOM", "_AF": "NBO", "_CA": "TAS", "_AS": "BKK"}
 
 PTS = {  # (lat, lon); names starting with _ are off-map gateways
     "DOH": (25.27, 51.61), "DXB": (25.25, 55.36), "AUH": (24.43, 54.65), "RUH": (24.96, 46.70),
     "JED": (21.68, 39.16), "KWI": (29.24, 47.97), "BAH": (26.27, 50.63), "MCT": (23.59, 58.28),
     "IST": (41.26, 28.74), "CAI": (30.12, 31.41), "AMM": (31.72, 35.99), "BGW": (33.26, 44.23),
     "IKA": (35.42, 51.15), "KHI": (24.90, 67.17), "TLV": (32.01, 34.89), "DMM": (26.47, 49.80),
-    "_EU": (43.5, 22.0), "_EU2": (43.5, 33.0), "_IN": (21.0, 67.0), "_AF": (8.5, 39.0),
-    "_CA": (43.0, 61.0), "_AS": (31.0, 67.0),
+    "_EU": (51.47, -0.45), "_EU2": (50.03, 8.57), "_IN": (19.09, 72.87), "_AF": (-1.32, 36.93),
+    "_CA": (41.26, 69.28), "_AS": (13.69, 100.75),
 }
 ROUTES = [("DOH", "_EU", 30), ("DXB", "_EU", 40), ("AUH", "_EU", 20), ("DOH", "_EU2", 15),
           ("DXB", "_EU2", 15), ("DOH", "_IN", 25), ("DXB", "_IN", 35), ("DOH", "_AF", 10),
@@ -76,43 +79,51 @@ def main():
     ap.add_argument("--days", type=int, default=90)
     a = ap.parse_args()
     random.seed(7)
-    variants = {(ra, rb, o, av): cells_for(path(ra, rb, o, av))
-                for ra, rb, _ in ROUTES for o in OFFSETS for av in (False, True)}
+    paths = {(ra, rb, o, av): path(ra, rb, o, av)
+             for ra, rb, _ in ROUTES for o in OFFSETS for av in (False, True)}
+    variants = {k: cells_for(v) for k, v in paths.items()}
+    os.makedirs(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "lines"), exist_ok=True)
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     ddir = os.path.join(root, "data", "days")
     os.makedirs(ddir, exist_ok=True)
     end = dt.date.fromisoformat(a.end)
     days = []
-    for k in range(a.days - 1, -1, -1):
+    for k in range(a.days - 1, -1, -1):  # noqa
         day = end - dt.timedelta(k)
         idx = a.days - 1 - k
         avoid_share = 0 if idx < 45 else min(1.0, (idx - 45) / 4 + 0.1)  # zone appears on day 46
         grid = [0] * (W * H)
         legs = 0
         weekly = 1 + 0.08 * math.sin(day.weekday())
+        lines = []
         for ra, rb, per_day in ROUTES:
             n = int(random.gauss(per_day * 2 * weekly, per_day * 0.2))  # both directions
             if avoid_share and ra in ("BGW",) or rb in ("BGW",):
                 n = int(n * (0.25 if avoid_share else 1))
             for _ in range(max(n, 0)):
                 av = random.random() < avoid_share
-                for i in variants[(ra, rb, random.choice(OFFSETS), av)]:
+                key = (ra, rb, random.choice(OFFSETS), av)
+                for i in variants[key]:
                     grid[i] += 1
                 legs += 1
+                pts = [(la + random.gauss(0, 0.03), lo + random.gauss(0, 0.03), 0) for la, lo in paths[key]]
+                o, d = CODE.get(GATE.get(ra, ra), 0), CODE.get(GATE.get(rb, rb), 0)
+                lines.append((o, d, pts) if random.random() < 0.5 else (d, o, pts[::-1]))
         out, last = [], 0
         for i, v in enumerate(grid):
             if v:
                 out += [i - last, v]
                 last = i
+        random.shuffle(lines)
+        for k in range(SHARDS):
+            with open(os.path.join(root, "data", "lines", f"{day}.s{k}.bin"), "wb") as fh:
+                fh.write(pack_shard(lines[k::SHARDS]))
         with open(os.path.join(ddir, f"{day}.json"), "w") as fh:
             json.dump({"date": str(day), "legs": legs, "aircraft": legs, "cells": out}, fh,
                       separators=(",", ":"))
         days.append({"date": str(day), "legs": legs, "aircraft": legs})
-    m = {"generated": dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-         "source": "SYNTHETIC DEMO DATA - not real flights", "demo": True,
-         "grid": spec(), "days": days}
-    with open(os.path.join(root, "data", "manifest.json"), "w") as fh:
-        json.dump(m, fh, indent=1)
+    from update import manifest
+    manifest(demo=True, source="SYNTHETIC DEMO DATA - not real flights")
     print(f"wrote {len(days)} demo days")
 
 
