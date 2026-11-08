@@ -38,10 +38,16 @@ data/                     committed by the workflow: manifest.json, days/*.json,
 ## Pipeline details
 - A leg is kept if any airborne point is inside the box. Its **entire** path is stored (worldwide),
   Douglas-Peucker simplified at 0.03°, coords as int16 lat*100/lon*100.
-- Gaps > 20 min or > 300 km between reports → gap flag 1 (drawn faint). |Δlon| > 180 → flag 2 (not drawn).
+- Gaps > 5 min or > 100 km between reports → gap flag 1 (hidden by default, "Show gaps" draws them thin/grey).
+  |Δlon| > 180 → flag 2 (never drawn). Positions are never estimated by adsb.lol (ADS-B/MLAT/TIS-B only);
+  straight stretches come from these joins. Measured Nov 5: in-box distance was 56% reports <1 min apart,
+  15% 2–20 min joins, 29% >20 min joins.
+- `PIPELINE_VERSION` (grid.py) is written into each day JSON as "v"; `plan` reprocesses days with an older v.
+  Bump it whenever process_day.py output changes meaning.
+- tar is read with `ignore_zeros=True` (the 2026-09-01 release has a damaged block; that day has ~5.9k legs).
 - Origin/dest = airport within 40 km of the leg's first/last point if below 10,000 ft.
 - Each day is shuffled into 4 shards so the viewer can load a random sample for long ranges.
-- Density grid: each leg adds +1 to every 0.1° cell it crosses (≥1,000 ft), once per leg.
+- Density grid: each leg adds +1 to every 0.1° cell it crosses (≥1,000 ft, observed segments only), once per leg.
 - Binary shard layout is documented in the `process_day.py` docstring and parsed by `parseShard()` in the viewer. Change both together.
 - Real numbers (Oct 28 2026): ~79k traces/day, ~3,700 aircraft / ~8,100 legs in box, ~128k path points,
   ~650 KB of line files/day. Processing ≈ 2–3 min/day on a GitHub runner.
@@ -53,11 +59,17 @@ A day counts as done when both `data/days/<d>.json` and `data/lines/<d>.s0.bin` 
 GitHub Pages source = "GitHub Actions" (already set).
 
 ## Viewer (site/index.html)
-- Three stacked canvases: `#base` (2D: water, land, borders, heatmap), `#gl` (WebGL2 line strips,
-  additive blending, primitive restart, `flat` varying for gap flag), `#top` (labels, airports, events, analysis box).
+- Three stacked canvases: `#base` (2D: water, land, borders, heatmap), `#gl` (WebGL2 lines), `#top`
+  (labels, airports, events, analysis box).
+- Lines, pass 1: line strips (primitive restart, `flat` gap varying) are counted per CSS pixel into an
+  RGBA16F texture (R = observed, G = gaps). Pass 2 (full-screen): each pixel looks R_MAX px around and draws a
+  solid line whose half-width = w·(0.45 + 0.3·log2(1 + flights/day)), colour dark→light blue with density,
+  dimmed to 45% outside the analysis box. "Line width" slider scales w. Without EXT_color_buffer_float it falls
+  back to premultiplied additive blending (no width encoding). Never go back to plain alpha blending at tiny
+  alpha: the 8-bit canvas alpha rounds to 0 and the layer vanishes (that bug hid all lines until Nov 8).
 - Equirectangular projection with cos(28°) x-scaling; zoom 0.2–16 (zoom out to world).
 - Modes: Flight paths (default) / Heatmap / Compare periods (baseline vs recent, red = fewer flights).
-- Controls: range presets, drag-select on daily-totals timeline, airport filter, brightness, ▶ Play weekly.
+- Controls: range presets, drag-select on daily-totals timeline, airport filter, line width, show gaps, ▶ Play weekly.
 - `MAX_LINES = 150000`: above it, fewer shards per day are loaded (random sample, stated in the UI).
 - `manifest.bundle` (optional) lets a host that can't serve .bin (the claude.ai artifact preview) use one base64 JSON.
 - Colors from a validated palette: sequential blue, diverging red/blue with gray midpoint, dark surface #1a1a19.
@@ -68,13 +80,15 @@ GitHub Pages source = "GitHub Actions" (already set).
   serve with `python3 -m http.server`, screenshot with Playwright/Chrome (`--use-angle=swiftshader --enable-unsafe-swiftshader` for WebGL2).
 
 ## Status (2026-11-08)
-- First real backfill with flight lines running: workflow run 42457890600 (89 days, ~50 min).
-  An earlier cancelled run committed density-only files for ~18 days; they are reprocessed automatically.
+- Backfill done (Aug 10 – Nov 6). Run 42457890600 + a re-run for 2026-09-01.
+- Fixed: lines invisible at high counts (8-bit alpha), damaged-tar early exit.
+- Look agreed with the user: firm lines, thickness = density, less blown-out, gaps hidden by default.
+- Pipeline v2 (5 min / 100 km gaps) reprocessing all days via a manual run started ~08:20 UTC.
 - data/events.json is empty.
 
 ## Next steps (agreed or proposed)
 1. Verify the backfill and live site (all days have shards, lines render, DOH filter works).
-2. Aesthetics pass on real data: the user wants to tweak the look. Ask what they like; tune line alpha/color.
+2. Aesthetics: first pass done (see Status). Check with the user after they've seen v2 data live.
 3. Research and add key events from the last ~3 months to data/events.json (date, lat, lon, type, title,
    source URL). Sourced facts only; stay neutral.
 4. Ideas: hover a line → callsign/route (needs callsign in shards), filter by airline, altitude band filter, mobile layout.
