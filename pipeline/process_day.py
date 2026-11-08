@@ -22,8 +22,9 @@ Outputs
                                 uint8  orig[nLegs], dest[nLegs]   index+1 into airports.py (0 = unknown)
                                 int16  pts[nPts*2]         lat*100, lon*100 pairs
                                 uint8  gap[nPts]           segment ENDING at this point:
-                                                           0 = observed, 1 = coverage gap (no reports;
-                                                           drawn faint), 2 = do not draw (hard break)
+                                                           0 = observed, 1 = coverage gap (no reports for
+                                                           > MAX_GAP_S or > MAX_GAP_KM; hidden unless the
+                                                           viewer's "Show gaps" is on), 2 = never drawn
 """
 import gzip
 import json
@@ -36,7 +37,7 @@ import tarfile
 import time
 
 sys.path.insert(0, os.path.dirname(__file__))
-from grid import W, H, cell, in_box  # noqa: E402
+from grid import PIPELINE_VERSION, W, H, cell, in_box  # noqa: E402
 from airports import AIRPORTS  # noqa: E402
 
 try:
@@ -45,8 +46,12 @@ try:
 except ImportError:  # works without it, just slower
     loads = json.loads
 
-MAX_GAP_S = 20 * 60     # positions further apart than this (or MAX_GAP_KM) are a coverage gap
-MAX_GAP_KM = 300
+# Positions further apart than this (or MAX_GAP_KM) are a coverage gap: the aircraft was not
+# observed in between, so a straight join would be a guess. 5 min at cruise is ~80 km, close
+# enough to the real track. (Measured on 2026-11-05: ~15% of the in-box distance came from
+# 2-20 min joins and ~29% from longer ones.)
+MAX_GAP_S = 5 * 60
+MAX_GAP_KM = 100
 MIN_ALT_FT = 1000       # density grid ignores very low points
 SIMPLIFY_DEG = 0.03     # path simplification tolerance (~3 km)
 SHARDS = 4
@@ -245,7 +250,7 @@ def process(stream, date, outdir):
             last = i
     os.makedirs(os.path.join(outdir, "days"), exist_ok=True)
     with open(os.path.join(outdir, "days", f"{date}.json"), "w") as fh:
-        json.dump({"date": date, "legs": n_legs, "aircraft": n_aircraft, "points": n_points,
+        json.dump({"date": date, "v": PIPELINE_VERSION, "legs": n_legs, "aircraft": n_aircraft, "points": n_points,
                    "traces_read": n_files, "cells": out}, fh, separators=(",", ":"))
 
     # full paths, randomly sharded

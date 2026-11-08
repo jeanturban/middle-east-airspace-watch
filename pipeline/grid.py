@@ -3,6 +3,10 @@ written into data/manifest.json, which the viewer reads)."""
 
 LON_MIN, LON_MAX = 25.0, 65.0   # Egypt/Turkey in the west -> Pakistan border in the east
 LAT_MIN, LAT_MAX = 10.0, 42.0   # Yemen/Horn of Africa -> Caucasus/Caspian
+# Bump when process_day.py output changes meaning: `update.py plan` then reprocesses every day
+# whose data/days/<date>.json carries an older "v". 2 = gaps over 5 min / 100 km between reports.
+PIPELINE_VERSION = 2
+
 RES = 0.1                       # degrees per cell (~11 km)
 
 W = round((LON_MAX - LON_MIN) / RES)   # 400 columns

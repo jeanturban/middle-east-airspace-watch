@@ -17,7 +17,7 @@ import sys
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
-from grid import spec  # noqa: E402
+from grid import PIPELINE_VERSION, spec  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DAYS_DIR = os.path.join(ROOT, "data", "days")
@@ -47,14 +47,23 @@ LINES_DIR = os.path.join(ROOT, "data", "lines")
 KEEP_LINE_DAYS = 180   # full-path files are ~1-2 MB/day; older ones are pruned (density grids are kept)
 
 
+def day_version(fname):
+    try:
+        with open(os.path.join(DAYS_DIR, fname)) as fh:
+            return json.load(fh).get("v", 1)
+    except (OSError, ValueError):
+        return 0
+
+
 def plan(days, max_n):
     today = dt.date.today()
     window = {str(today - dt.timedelta(d)) for d in range(1, days + 1)}
-    # a day counts as done once both its density grid and its line shards exist
+    # a day counts as done once its density grid and line shards exist, made by the current pipeline
     have = set()
     if os.path.isdir(DAYS_DIR) and os.path.isdir(LINES_DIR):
         lines = set(os.listdir(LINES_DIR))
-        have = {f[:-5] for f in os.listdir(DAYS_DIR) if f"{f[:-5]}.s0.bin" in lines}
+        have = {f[:-5] for f in os.listdir(DAYS_DIR)
+                if f"{f[:-5]}.s0.bin" in lines and day_version(f) >= PIPELINE_VERSION}
     avail = published({int(d[:4]) for d in window})
     todo = sorted((d for d in window if d in avail and d not in have), reverse=True)[:max_n]
     print(json.dumps([{"date": d, "urls": avail[d]} for d in todo]))
