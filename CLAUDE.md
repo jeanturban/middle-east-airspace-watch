@@ -85,7 +85,9 @@ GitHub Pages source = "GitHub Actions" (already set).
 - Backfill done (Aug 10 – Nov 6). Run 42457890600 + a re-run for 2026-09-01.
 - Fixed: lines invisible at high counts (8-bit alpha), damaged-tar early exit.
 - Look agreed with the user: firm lines, thickness = density, less blown-out, gaps hidden by default.
-- Pipeline v2 (5 min / 100 km gaps) reprocessing all days via a manual run started ~08:20 UTC.
+- All 89 days (Aug 10 – Nov 6) are pipeline v2 with 4 shards (verified after run 42470754478).
+  Legs/day median ~8,650; low but complete days: Sep 1 (5,927, damaged tar) and Aug 13 (6,931, full 74k traces).
+  The 09:17 UTC schedule did not fire on Nov 8; trigger update.yml manually if a day is missing.
 - data/events.json is empty.
 
 ## Next steps (agreed or proposed)
