@@ -63,12 +63,16 @@ GitHub Pages source = "GitHub Actions" (already set).
 ## Viewer (site/index.html)
 - Three stacked canvases: `#base` (2D: water, land, borders, heatmap), `#gl` (WebGL2 lines), `#top`
   (labels, airports, events, analysis box).
-- Lines, pass 1: line strips (primitive restart, `flat` gap varying) are counted per CSS pixel into an
-  RGBA16F texture (R = observed, G = gaps). Pass 2 (full-screen): each pixel looks R_MAX px around and draws a
-  solid line whose half-width = w·(0.45 + 0.3·log2(1 + flights/day)), colour dark→light blue with density,
-  dimmed to 45% outside the analysis box. "Line width" slider scales w. Without EXT_color_buffer_float it falls
-  back to premultiplied additive blending (no width encoding). Never go back to plain alpha blending at tiny
-  alpha: the 8-bit canvas alpha rounds to 0 and the layer vanishes (that bug hid all lines until Nov 8).
+- Lines (float path, EXT_color_buffer_float), all in device pixels:
+  1. each segment is an instanced quad (point i -> i+1, per-segment flag buffer: 0 observed, 1 gap, 2 skip)
+     drawn as a 1 px tent into RGBA16F: R = observed weight, G = gap weight, BA = weighted offset to the
+     nearest point on the segment (sub-pixel line position). Pixels belong to the segment with t in [0,1).
+  2. jump flooding (init + steps 8,4,2,1,1 at dpr 2) picks per pixel the seed maximising halfWidth - distance;
+     half-width = w·(0.45 + 0.3·log2(1 + flights/day)) CSS px (max R_MAX=4); density = line weight within ~1 CSS px.
+  3. shade: smooth coverage, colour dark→light blue with density. No analysis-box outline or dimming (user asked).
+  "Line width" slider scales w. Without float targets: premultiplied additive LINE_STRIPs (no width encoding).
+  Never go back to plain alpha blending at tiny alpha: the 8-bit canvas alpha rounds to 0 and the layer vanishes.
+  The old CSS-pixel dilation looked beaded/pixelated (user, Nov 8); don't return to it.
 - Equirectangular projection with cos(28°) x-scaling; zoom 0.2–16 (zoom out to world).
 - Modes: Flight paths (default) / Heatmap / Compare periods (baseline vs recent, red = fewer flights).
 - Controls: range presets, drag-select on daily-totals timeline, airport filter, line width, show gaps, ▶ Play weekly.
@@ -85,6 +89,9 @@ GitHub Pages source = "GitHub Actions" (already set).
 - Backfill done (Aug 10 – Nov 6). Run 42457890600 + a re-run for 2026-09-01.
 - Fixed: lines invisible at high counts (8-bit alpha), damaged-tar early exit.
 - Look agreed with the user: firm lines, thickness = density, less blown-out, gaps hidden by default.
+  Nov 8: dashed box + outside dimming removed; renderer rewritten for smooth sub-pixel lines.
+  Dark Arabian Sea = no receivers over open ocean (Show gaps reveals the crossings). A free source won't fix
+  that; only satellite ADS-B (commercial) would.
 - All 89 days (Aug 10 – Nov 6) are pipeline v2 with 4 shards (verified after run 42470754478).
   Legs/day median ~8,650; low but complete days: Sep 1 (5,927, damaged tar) and Aug 13 (6,931, full 74k traces).
   The 09:17 UTC schedule did not fire on Nov 8; trigger update.yml manually if a day is missing.
