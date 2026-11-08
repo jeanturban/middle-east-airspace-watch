@@ -150,10 +150,17 @@ function parseShard(buf) {
   const gap = new Uint8Array(buf, o, np);
   return { nl, np, lens, orig: od.subarray(0, nl), dest: od.subarray(nl), pts, gap };
 }
+let bundle = null; // some hosts can't serve .bin files: manifest.bundle points to one JSON of base64 shards instead
+function fetchShard(date, k) {
+  if (!M.bundle) return fetch(`data/lines/${date}.s${k}.bin`).then(r => r.ok ? r.arrayBuffer() : null);
+  bundle = bundle || getJSON("data/" + M.bundle);
+  return bundle.then(b => { const s = b[`${date}.s${k}.bin`]; if (!s) return null;
+    const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; });
+}
 function loadShard(date, k) {
   const key = date + "/" + k;
-  if (!S.lineCache.has(key)) S.lineCache.set(key, fetch(`data/lines/${date}.s${k}.bin`)
-    .then(r => r.ok ? r.arrayBuffer() : null).then(b => b && b.byteLength >= 16 ? parseShard(b) : null).catch(() => null));
+  if (!S.lineCache.has(key)) S.lineCache.set(key, fetchShard(date, k)
+    .then(b => b && b.byteLength >= 16 ? parseShard(b) : null).catch(() => null));
   return S.lineCache.get(key);
 }
 async function loadLines([i0, i1]) {
