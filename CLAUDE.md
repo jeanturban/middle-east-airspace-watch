@@ -112,11 +112,15 @@ GitHub Pages source = "GitHub Actions" (already set).
 - data/events.json is empty.
 
 ## Next steps (agreed or proposed)
-1. Verify the backfill and live site (all days have shards, lines render, DOH filter works).
-2. Aesthetics: first pass done (see Status). Check with the user after they've seen v2 data live.
+1. Done Nov 8: backfill verified (all days v2, 4 shards), DOH filter works, look iterated with the user
+   (light map, smooth lines, Doha distance fade, per-week scale, gradual unheard joins). Ask for feedback on the live site.
+2. Offered, not decided: finer path precision (DP 0.01°, int16 lat/lon*180; ~+70% data, reprocess all days ~3-4 h);
+   great-circle joins; tuning WEEK_LO/WEEK_HI, FADE_KM, JOIN_WEIGHT.
 3. Research and add key events from the last ~3 months to data/events.json (date, lat, lon, type, title,
    source URL). Sourced facts only; stay neutral.
-4. Ideas: hover a line → callsign/route (needs callsign in shards), filter by airline, altitude band filter, mobile layout.
+4. Ideas: colour by recent vs earlier days (route shifts), hover a line → callsign/route (needs callsign in shards),
+   filter by airline, altitude band filter, mobile layout.
+5. Check the daily schedule actually fires (it didn't on Nov 8); otherwise run update.yml by hand.
 
 ## Conventions
 - Commit as the user; end commit messages with the Co-Authored-By line Claude Code adds.
