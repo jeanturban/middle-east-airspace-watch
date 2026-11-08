@@ -35,17 +35,18 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 5   # gentler on GitHub release downloads (8 at once got 504s)
       matrix:
         day: ${{ fromJson(needs.plan.outputs.todo) }}
     steps:
       - uses: actions/checkout@v4
       - run: pip install orjson
-      - name: Stream ${{ matrix.day.date }} from adsb.lol and grid it
+      - name: Download ${{ matrix.day.date }} from adsb.lol (resumable, size-checked)
+        run: bash pipeline/fetch.sh downloads ${{ join(matrix.day.urls, ' ') }}
+      - name: Grid ${{ matrix.day.date }}
         run: |
-          set -o pipefail
-          curl -sSfL --retry 5 --retry-delay 20 ${{ join(matrix.day.urls, ' ') }} \
-            | python3 pipeline/process_day.py ${{ matrix.day.date }} out
+          cat downloads/*.tar.a? | python3 pipeline/process_day.py ${{ matrix.day.date }} out
+          rm -rf downloads
       - uses: actions/upload-artifact@v4
         with:
           name: day-${{ matrix.day.date }}

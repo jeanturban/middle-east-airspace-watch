@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-08T09:02:05Z",
+ "generated": "2026-11-08T09:03:46Z",
  "source": "adsb.lol globe_history (ODbL 1.0)",
  "demo": false,
  "grid": {
@@ -316,8 +316,8 @@
  "days": [
   {
    "date": "2026-08-10",
-   "legs": 5509,
-   "aircraft": 2517,
+   "legs": 8964,
+   "aircraft": 4069,
    "shards": 4
   },
   {
@@ -352,8 +352,8 @@
   },
   {
    "date": "2026-08-16",
-   "legs": 2547,
-   "aircraft": 1150,
+   "legs": 9246,
+   "aircraft": 4154,
    "shards": 4
   },
   {
@@ -394,8 +394,8 @@
   },
   {
    "date": "2026-08-23",
-   "legs": 3027,
-   "aircraft": 1303,
+   "legs": 9823,
+   "aircraft": 4243,
    "shards": 4
   },
   {
@@ -430,8 +430,8 @@
   },
   {
    "date": "2026-08-29",
-   "legs": 2979,
-   "aircraft": 1345,
+   "legs": 9680,
+   "aircraft": 4321,
    "shards": 4
   },
   {

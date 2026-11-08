@@ -27,6 +27,7 @@ and the Saudi interior. An empty area can mean "avoided" or "unobserved". Compar
 pipeline/grid.py          analysis box 25–65°E, 10–42°N, 0.1° grid (400×320)
 pipeline/process_day.py   stdin tar stream → out/days/<date>.json (density) + out/lines/<date>.s0-3.bin (paths)
 pipeline/airports.py      airport list for origin/dest tagging. APPEND-ONLY (indices are stored in data)
+pipeline/fetch.sh         download a day's split tar to disk, resuming + size-checking each part
 pipeline/update.py        `plan` (missing days as JSON for the Actions matrix) / `manifest` (+ prunes line files >180 days)
 pipeline/build_basemap.py Natural Earth 1:50m → data/basemap.json (whole world, simplified)
 pipeline/make_demo_data.py synthetic data, manifest demo=true (banner in UI). Never commit its output
@@ -53,8 +54,9 @@ data/                     committed by the workflow: manifest.json, days/*.json,
   ~650 KB of line files/day. Processing ≈ 2–3 min/day on a GitHub runner.
 
 ## Workflow
-`plan` → `process` (matrix, one job per day, max-parallel 8, streams `curl aa ab | process_day.py`)
-→ `publish` (copies artifacts into data/, `update.py manifest`, `git pull --rebase`, push, deploy to Pages).
+`plan` → `process` (matrix, one job per day, max-parallel 5)
+(`fetch.sh` to disk, then `cat | process_day.py`; never stream curl straight in: a dropped
+connection plus ignore_zeros silently saved partial days on Nov 8) → `publish` (copies artifacts into data/, `update.py manifest`, `git pull --rebase`, push, deploy to Pages).
 A day counts as done when both `data/days/<d>.json` and `data/lines/<d>.s0.bin` exist.
 GitHub Pages source = "GitHub Actions" (already set).
 
