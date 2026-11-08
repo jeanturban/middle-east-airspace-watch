@@ -1,0 +1,106 @@
+{
+ "generated": "2026-11-08T07:12:34Z",
+ "source": "adsb.lol globe_history (ODbL 1.0)",
+ "demo": false,
+ "grid": {
+  "lon_min": 25.0,
+  "lon_max": 65.0,
+  "lat_min": 10.0,
+  "lat_max": 42.0,
+  "res": 0.1,
+  "w": 400,
+  "h": 320
+ },
+ "days": [
+  {
+   "date": "2026-10-17",
+   "legs": 8405,
+   "aircraft": 3809
+  },
+  {
+   "date": "2026-10-20",
+   "legs": 7729,
+   "aircraft": 3622
+  },
+  {
+   "date": "2026-10-22",
+   "legs": 8363,
+   "aircraft": 3859
+  },
+  {
+   "date": "2026-10-23",
+   "legs": 8344,
+   "aircraft": 3812
+  },
+  {
+   "date": "2026-10-24",
+   "legs": 8835,
+   "aircraft": 4020
+  },
+  {
+   "date": "2026-10-25",
+   "legs": 8672,
+   "aircraft": 3915
+  },
+  {
+   "date": "2026-10-26",
+   "legs": 8140,
+   "aircraft": 3739
+  },
+  {
+   "date": "2026-10-27",
+   "legs": 7789,
+   "aircraft": 3631
+  },
+  {
+   "date": "2026-10-28",
+   "legs": 8097,
+   "aircraft": 3731
+  },
+  {
+   "date": "2026-10-29",
+   "legs": 8018,
+   "aircraft": 3659
+  },
+  {
+   "date": "2026-10-30",
+   "legs": 8255,
+   "aircraft": 3691
+  },
+  {
+   "date": "2026-10-31",
+   "legs": 8407,
+   "aircraft": 3828
+  },
+  {
+   "date": "2026-11-01",
+   "legs": 8783,
+   "aircraft": 3899
+  },
+  {
+   "date": "2026-11-02",
+   "legs": 8050,
+   "aircraft": 3717
+  },
+  {
+   "date": "2026-11-03",
+   "legs": 7560,
+   "aircraft": 3579
+  },
+  {
+   "date": "2026-11-04",
+   "legs": 7747,
+   "aircraft": 3689
+  },
+  {
+   "date": "2026-11-05",
+   "legs": 7740,
+   "aircraft": 3614
+  },
+  {
+   "date": "2026-11-06",
+   "legs": 7781,
+   "aircraft": 3570
+  }
+ ]
+}
