@@ -241,6 +241,10 @@ const FADE_KM = [1800, 3200]; // 1800 km from Doha covers all of Saudi Arabia; I
 // line colour by flights/day (t = log2(1 + f) / log2(101)): mid blue for rare paths -> deep navy for 100+/day
 const LINE_LO = [52, 112, 192], LINE_HI = [10, 42, 98];
 const JOIN_WEIGHT = "0.35";   // an unheard join counts this much of a flight towards line width
+const JOIN_RAMP_KM = "250.0"; // ...reached gradually over this distance from where the aircraft was last/next heard
+// line scale in flights per WEEK on a path: WEEK_LO and below = thinnest, faint below it (rare flights are
+// noise for trends); WEEK_HI and above = thickest, darkest
+const WEEK_LO = 5, WEEK_HI = 500;
 let prog, segP, jInit, jStep, comp, vao, segVao, quad, nIdx = 0, nSeg = 0, acc = null;
 if (gl) {
   const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s);
@@ -299,7 +303,7 @@ if (gl) {
       gl_Position = vec4(p / dev * 2.0 - 1.0, 0.0, 1.0);
       v_a = a; v_b = b;
     }`, `#version 300 es
-    precision highp float; flat in vec2 v_a, v_b; flat in float v_gap; out vec4 o;
+    precision highp float; flat in vec2 v_a, v_b; flat in float v_gap; uniform vec4 u_view; uniform float u_dpr; out vec4 o;
     void main() {
       vec2 f = gl_FragCoord.xy, ab = v_b - v_a; float l2 = dot(ab, ab);
       float t = l2 > 0.0 ? dot(f - v_a, ab) / l2 : 0.0;
@@ -307,16 +311,24 @@ if (gl) {
       vec2 off = v_a + ab * clamp(t, 0.0, 1.0) - f;
       float w = 1.0 - length(off);                           // tent: weights across the line sum to ~1
       if (w <= 0.0) discard;
-      // unheard joins count less towards width, so observed corridors dominate (JOIN_WEIGHT)
-      float k = v_gap > 0.5 ? ${JOIN_WEIGHT} : 1.0;
-      o = vec4(k * w, v_gap > 0.5 ? w : 0.0, k * w * off);
+      // unheard joins count less towards width and are paler, so observed corridors dominate; the change
+      // ramps in over JOIN_RAMP_KM from each end so a line doesn't switch style abruptly where coverage ends
+      float g = 0.0;
+      if (v_gap > 0.5) {
+        float km = min(t, 1.0 - t) * sqrt(l2) / u_dpr * 111.2 / u_view.z;   // along the join, to its nearer end
+        g = smoothstep(0.0, ${JOIN_RAMP_KM}, km);
+      }
+      float k = mix(1.0, ${JOIN_WEIGHT}, g);
+      o = vec4(k * w, g * w, k * w * off);
     }`);
   const FS = `#version 300 es
     in vec2 a_xy; void main() { gl_Position = vec4(a_xy, 0.0, 1.0); }`;
-  // half-width in device px at this pixel: grows with flights/day, thins out with distance from the centre
+  // level(fpd): 0 at WEEK_LO flights/week or fewer, 1 at WEEK_HI or more (log scale)
+  // half-width in device px at this pixel: grows with the level, thins out with distance from the centre
   const HW = `uniform float u_wk;
+    float level(float fpd) { return clamp(log(7.0 * fpd / ${WEEK_LO}.0) / log(${WEEK_HI}.0 / ${WEEK_LO}.0), 0.0, 1.0); }
     float halfWidth(float fpd, float fade) {
-      return u_dpr * min(${R_MAX}.0, u_wk * (0.45 + 0.3 * log2(1.0 + fpd))) * mix(0.35, 1.0, fade);
+      return u_dpr * min(${R_MAX}.0, u_wk * (0.45 + 2.0 * level(fpd))) * mix(0.35, 1.0, fade);
     }
 `;
   // step 2a: seeds = pixels a line passes through: (offset to the line, flights per day, unheard share);
@@ -363,9 +375,9 @@ if (gl) {
       if (fade <= 0.0 || s.w < -0.5) discard;
       float cov = clamp(halfWidth(s.z, fade) - length(s.xy) + 0.5, 0.0, 1.0);
       // every flight visible; busier paths darker and more opaque; all fade out far from the centre
-      float t = clamp(log2(1.0 + s.z) / log2(101.0), 0.0, 1.0);
+      float t = level(s.z), rare = mix(0.25, 1.0, smoothstep(0.0, ${WEEK_LO}.0, 7.0 * s.z));
       vec3 col = mix(LINE_LO, LINE_HI, t);
-      float a = cov * mix(0.6, 1.0, t) * fade;
+      float a = cov * mix(0.6, 1.0, t) * rare * fade;
       // unheard stretches (s.w = their share here): paler; grey when "Mark unheard stretches" is on
       if (u_gaps) { col = mix(col, vec3(0.5, 0.49, 0.46), s.w); a *= 1.0 - 0.6 * s.w; }
       else a *= 1.0 - 0.7 * s.w;
@@ -550,16 +562,18 @@ function draw() {
 function legend() {
   const el = $("legend");
   if (S.mode === "lines") {
-    // same width and colour formulas as the line shaders
-    const wk = Math.pow(2, S.bright / 2), w = f => Math.max(1, 2 * Math.min(R_MAX, wk * (0.45 + 0.3 * Math.log2(1 + f))));
-    const col = (f, k = 1) => { const t = Math.min(1, Math.log2(1 + f) / Math.log2(101));
-      return `rgba(${LINE_LO.map((v, i) => Math.round(v + (LINE_HI[i] - v) * t)).join(",")},${((0.6 + 0.4 * t) * k).toFixed(2)})`; };
+    // same width, colour and opacity formulas as the line shaders (fpw = flights per week)
+    const wk = Math.pow(2, S.bright / 2);
+    const lev = fpw => Math.max(0, Math.min(1, Math.log(fpw / WEEK_LO) / Math.log(WEEK_HI / WEEK_LO)));
+    const w = fpw => Math.max(1, 2 * Math.min(R_MAX, wk * (0.45 + 2 * lev(fpw))));
+    const col = (fpw, k = 1) => { const t = lev(fpw), x = Math.min(1, fpw / WEEK_LO), rare = 0.25 + 0.75 * x * x * (3 - 2 * x);
+      return `rgba(${LINE_LO.map((v, i) => Math.round(v + (LINE_HI[i] - v) * t)).join(",")},${((0.6 + 0.4 * t) * rare * k).toFixed(2)})`; };
     const ap = M.airports[S.airport - 1];
-    el.innerHTML = `<div>One line per flight. <b>Thicker and darker = more flights per day</b> on that path.
-      Lines fade out beyond ~1,800 km from ${ap ? ap[0] : "Doha"}.</div>
-      <div class="lineKey">${[[1 / 7, "1 / week"], [1, "1 / day"], [10, "10 / day"], [100, "100+ / day"]]
+    el.innerHTML = `<div>One line per flight. <b>Thicker and darker = more flights per week</b> on that path;
+      paths flown less than ${WEEK_LO} times a week are faint. Lines fade out beyond ~1,800 km from ${ap ? ap[0] : "Doha"}.</div>
+      <div class="lineKey">${[[1, "1 / week"], [WEEK_LO, `${WEEK_LO} / week`], [50, "50 / week"], [WEEK_HI, `${WEEK_HI}+ / week`]]
         .map(([f, t]) => `<span><i style="border-top:${w(f).toFixed(1)}px solid ${col(f)}"></i>${t}</span>`).join("")}</div>
-      <div class="lineKey"><span><i style="border-top:${w(1).toFixed(1)}px solid ${S.gaps ? "rgba(128,125,117,.6)" : col(1, 0.3)}"></i>not heard by receivers for 5+ min: straight join</span></div>`;
+      <div class="lineKey"><span><i style="border-top:${w(50).toFixed(1)}px solid ${S.gaps ? "rgba(128,125,117,.6)" : col(50, 0.3)}"></i>not heard by receivers: straight join, fading in over ~250 km</span></div>`;
     return;
   }
   el.innerHTML = `<div id="legTitle"></div><canvas id="legBar" width="220" height="10"></canvas><div class="ticks" id="legTicks"></div>`;

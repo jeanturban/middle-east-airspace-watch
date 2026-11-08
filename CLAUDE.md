@@ -68,14 +68,18 @@ GitHub Pages source = "GitHub Actions" (already set).
      drawn as a 1 px tent into RGBA16F: R = observed weight, G = gap weight, BA = weighted offset to the
      nearest point on the segment (sub-pixel line position). Pixels belong to the segment with t in [0,1).
   2. jump flooding (init + steps 8,4,2,1,1 at dpr 2) picks per pixel the seed maximising halfWidth - distance;
-     half-width = w·(0.45 + 0.3·log2(1 + flights/day)) CSS px (max R_MAX=4); density = line weight within ~1 CSS px.
+     half-width = w·(0.45 + 2·level) CSS px (max R_MAX=4), level = log(flights/week ÷ WEEK_LO) / log(WEEK_HI ÷ WEEK_LO)
+     clamped 0–1 (WEEK_LO=5, WEEK_HI=500); paths under 5/week also fade to 25% opacity (user: 1/week was noise).
+     Density = line weight within ~1 CSS px.
   3. shade: smooth coverage, colour mid blue→deep navy with density. No analysis-box outline or dimming (user asked).
   Distance fade (user's design, Nov 8): full strength within FADE_KM[0]=1800 km of the airport of interest
   (Doha, or the airport picked in "Flights"), then width (to 35%) and opacity taper to 0 at FADE_KM[1]=3200 km.
   Computed per pixel (unproject + haversine); segments wholly beyond FADE_KM[1] are culled in the vertex shader.
   Unheard joins (gap flag 1) are drawn by default so routes look continuous (e.g. Arabian Sea crossings,
   typically 1,300-2,300 km joins), but count JOIN_WEIGHT=0.35 towards width and are paler; "Mark unheard
-  stretches" (S.gaps) turns them grey. Measured Nov 1-3 within 3200 km: joins are 57% of drawn distance,
+  stretches" (S.gaps) turns them grey. The paler style ramps in over JOIN_RAMP_KM=250 km from each end of a join
+  (user found the abrupt dark->light switch at coverage edges odd). Checked Nov 1-7: N Saudi 26-31N 39-46E is 1%
+  observed / 99% joins (no receivers) vs 89% observed in the Gulf: the faintness there is coverage, not a data error. Measured Nov 1-3 within 3200 km: joins are 57% of drawn distance,
   69% of it from joins >1000 km, so they must stay visually secondary or they swamp avoided airspace.
   "Line width" slider scales w. Without float targets: premultiplied additive LINE_STRIPs (no width encoding).
   Never go back to plain alpha blending at tiny alpha: the 8-bit canvas alpha rounds to 0 and the layer vanishes.
@@ -86,7 +90,7 @@ GitHub Pages source = "GitHub Actions" (already set).
 - `MAX_LINES = 150000`: above it, fewer shards per day are loaded (random sample, stated in the UI).
 - `manifest.bundle` (optional) lets a host that can't serve .bin (the claude.ai artifact preview) use one base64 JSON.
 - Light theme (user, Nov 8): white sea, beige land #e8e4d8, darker country outlines, page surface #f7f6f2.
-  Line colour = flights/day too (redundant with width): LINE_LO mid blue -> LINE_HI deep navy, t = log2(1+f)/log2(101);
+  Line colour = the same level (redundant with width): LINE_LO mid blue -> LINE_HI deep navy;
   the legend samples use the same formulas. Unheard joins at 30% opacity (more made a grey fog over Iran/Saudi).
   Heatmap: SEQ light -> dark blue drawn with "multiply"; Compare: red/blue with light-grey midpoint.
 
