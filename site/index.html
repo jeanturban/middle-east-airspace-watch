@@ -61,6 +61,9 @@
   .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
   #timeline { width: 100%; height: 86px; display: block; user-select: none; cursor: crosshair; touch-action: none; }
   .hide { display: none !important; }
+  #frame { position: absolute; left: 12px; top: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 12px; font-size: 20px; font-weight: 600; color: var(--text); z-index: 2; font-variant-numeric: tabular-nums; }
+  #frame small { display: block; font-size: 11px; font-weight: 400; color: var(--text-3); }
   @media (max-width: 700px) { #note { display: none; } .stat { margin-left: 0; text-align: left; width: 100%; } }
 </style>
 </head>
@@ -87,7 +90,7 @@
   <span class="ctl" id="airportCtl"><span class="lbl">Flights</span><select id="airport"><option value="0">All flights</option></select></span>
   <span class="ctl" id="brightCtl"><span class="lbl">Line width</span><input type="range" id="bright" min="-2" max="2" step="0.1" value="0" aria-label="Line width"></span>
   <label class="ctl" id="gapCtl" title="Stretches where no receiver heard the aircraft for over 5 minutes are drawn as a straight join between the last and next report. Tick to show them in grey."><input type="checkbox" id="gaps"><span class="lbl">Mark unheard stretches</span></label>
-  <button class="btn" id="play" title="Slide a 7-day window across the whole period">▶ Play weekly</button>
+  <button class="btn" id="play" title="Animate week by week through the whole period">▶ Play weekly</button>
   <div class="stat" id="stat"></div>
 </div>
 
@@ -97,6 +100,7 @@
   <canvas id="top"></canvas>
   <div id="tip"></div>
   <div id="loading">Loading flights…</div>
+  <div id="frame" class="hide"></div>
   <div id="zoom"><button class="btn" id="zin" aria-label="Zoom in">+</button><button class="btn" id="zout" aria-label="Zoom out">−</button><button class="btn" id="zreset" aria-label="Reset view">⟲</button></div>
   <div id="legend"></div>
   <div id="note"><button id="noteX" aria-label="Close note">×</button><b>Reading this map.</b> <span id="noteTxt"></span></div>
@@ -117,12 +121,14 @@
 "use strict";
 const $ = id => document.getElementById(id);
 const MAX_LINES = 150000;            // above this, a random sample of flights is drawn
+const PLAY_MAX_LINES = 30000;        // ...and this while the animation plays (about half of each week)
+const FRAME_MS = 1500;               // time per week in the animation
 const S = { mode: "lines", sel: [0, 0], base: [0, 0], editing: "cmp", cache: new Map(), lineCache: new Map(),
             zoom: 1, panX: 0, panY: 0, playing: null, field: null, airport: 0, bright: 0, gaps: false, lines: null };
 let G, M, BM, EV = [];
 const NOTES = {
-  lines: "Each line is one civil flight that crossed the region (Egypt to Pakistan, Yemen to the Caucasus), drawn from takeoff to landing. Lines fade out with distance from Doha (or the airport picked under <i>Flights</i>), from about 1,800 km. Where no receiver heard the aircraft for over 5 minutes, the line is a straight join between the last and next report (tick <i>Mark unheard stretches</i> to show these in grey). <b>Hatched areas</b> (e.g. Saudi Arabia, Iraq, Iran, the Arabian Sea) have few or no receivers: flights still cross them, but are drawn as pale straight joins, so traffic there looks lighter than it is. Compare hatched areas over time rather than with unhatched ones. Empty areas can mean airlines avoid them <i>or</i> that no receivers cover them.",
-  density: "Each cell counts flights (civil, airborne) that crossed it per day, averaged over the selected dates. Dark areas can mean aircraft avoid them <i>or</i> that no receivers cover them.",
+  lines: "Each line is one civil flight that crossed the region (Egypt to Pakistan, Yemen to the Caucasus), drawn from takeoff to landing. Lines fade out with distance from Doha (or the airport picked under <i>Flights</i>), from about 1,800 km. Where no receiver heard the aircraft for over 5 minutes, the line is a straight join between the last and next report (tick <i>Mark unheard stretches</i> to show these in grey). <b>Hatched areas</b> (e.g. Saudi Arabia, Iraq, Iran, the Arabian Sea) have few or no receivers: flights crossing them are drawn as straight joins between the last and next report (exact path unknown), slightly thinner than heard traffic. Compare hatched areas over time rather than with unhatched ones. Empty areas can mean airlines avoid them <i>or</i> that no receivers cover them.",
+  density: "Each ~28 km cell counts the flights that crossed it per day, averaged over the selected dates and smoothed slightly. Unheard stretches count too, along the straight join between the last and next report, so in <b>hatched areas</b> (few or no receivers) the traffic is real but its exact position is approximate. Pick an airport under <i>Flights</i> to see only its flights.",
   compare: "Red cells lost traffic compared with the baseline, blue cells gained it. A cell that goes from busy to empty is a real change; an area that was always empty may just lack receivers."
 };
 
@@ -166,11 +172,16 @@ function loadShard(date, k) {
     .then(b => b && b.byteLength >= 16 ? parseShard(b) : null).catch(() => null));
   return S.lineCache.get(key);
 }
-async function loadLines([i0, i1]) {
-  const days = M.days.slice(i0, i1 + 1).filter(d => d.shards);
-  const total = days.reduce((s, d) => s + d.legs, 0);
-  const per = Math.max(1, Math.min(4, Math.ceil(4 * MAX_LINES / Math.max(1, total))));
-  const shards = await Promise.all(days.flatMap(d => Array.from({ length: Math.min(per, d.shards) }, (_, k) => loadShard(d.date, k))));
+// which shards to load for a range: all 4 per day up to MAX_LINES flights (PLAY_MAX_LINES while playing),
+// fewer per day above that (each shard is a random quarter of the day)
+function shardPlan([i0, i1], max) {
+  const days = M.days.slice(i0, i1 + 1).filter(d => d.shards), total = days.reduce((s, d) => s + d.legs, 0);
+  const per = Math.max(1, Math.min(4, Math.ceil(4 * max / Math.max(1, total))));
+  return { days, total, per, list: days.flatMap(d => Array.from({ length: Math.min(per, d.shards) }, (_, k) => [d.date, k])) };
+}
+async function loadLines(range) {
+  const { days, total, per, list } = shardPlan(range, S.playing ? PLAY_MAX_LINES : MAX_LINES);
+  const shards = await Promise.all(list.map(([d, k]) => loadShard(d, k)));
   let nl = 0, np = 0; for (const s of shards) if (s) { nl += s.nl; np += s.np; }
   const pts = new Int16Array(2 * np), gap = new Uint8Array(np), start = new Uint32Array(nl), len = new Uint16Array(nl),
         orig = new Uint8Array(nl), dest = new Uint8Array(nl);
@@ -223,6 +234,41 @@ function coverage(L) {
   return { cw, ch, low, hatch };
 }
 
+// Heatmap: flights per day crossing each HEAT_RES° cell, from the loaded lines (unheard joins included,
+// so areas without receivers aren't blank), each flight counted once per cell, then lightly smoothed.
+// Rows run north -> south like the canvas. Honours the airport filter.
+const HEAT_RES = 0.25;
+function heatField(L) {
+  const w = Math.round((G.lon_max - G.lon_min) / HEAT_RES), h = Math.round((G.lat_max - G.lat_min) / HEAT_RES);
+  let a = new Float32Array(w * h); const stamp = new Int32Array(w * h).fill(-1), P = L.pts, STEP = 0.1, ap = S.airport;
+  for (let j = 0; j < L.nl; j++) {
+    if (ap && L.orig[j] !== ap && L.dest[j] !== ap) continue;
+    const s = L.start[j];
+    for (let p = s + 1; p < s + L.len[j]; p++) {
+      if (L.gap[p] > 1) continue;
+      const la0 = P[2 * p - 2] / 100, lo0 = P[2 * p - 1] / 100, la1 = P[2 * p] / 100, lo1 = P[2 * p + 1] / 100;
+      if (Math.max(la0, la1) < G.lat_min || Math.min(la0, la1) > G.lat_max ||
+          Math.max(lo0, lo1) < G.lon_min || Math.min(lo0, lo1) > G.lon_max) continue;
+      const dla = la1 - la0, dlo = lo1 - lo0, n = Math.max(1, Math.ceil(Math.max(Math.abs(dla), Math.abs(dlo)) / STEP));
+      for (let i = 0; i <= n; i++) {
+        const x = Math.floor((lo0 + dlo * i / n - G.lon_min) / HEAT_RES), y = Math.floor((G.lat_max - la0 - dla * i / n) / HEAT_RES);
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const k = y * w + x; if (stamp[k] !== j) { stamp[k] = j; a[k]++; }
+      }
+    }
+  }
+  const perDay = 1 / Math.max(1, L.days) / (L.sampled ? L.nl / L.total : 1);
+  for (let i = 0; i < a.length; i++) a[i] *= perDay;
+  // two 1-2-1 passes each way: a small Gaussian-like blur (keeps totals, softens the straight joins)
+  for (let pass = 0; pass < 2; pass++) for (const [dx, dy] of [[1, 0], [0, 1]]) {
+    const o = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const X0 = Math.max(0, x - dx), Y0 = Math.max(0, y - dy), X1 = Math.min(w - 1, x + dx), Y1 = Math.min(h - 1, y + dy);
+      o[y * w + x] = (a[Y0 * w + X0] + 2 * a[y * w + x] + a[Y1 * w + X1]) / 4; }
+    a = o; }
+  return { a, w, h, res: HEAT_RES };
+}
+
 // ---------- colour ----------
 const SEQ = [[214,229,247],[160,197,238],[98,152,222],[50,108,190],[22,68,140],[9,37,88]];   // light -> dark blue (light map)
 function lerpRamp(r, t) { t = Math.max(0, Math.min(1, t)) * (r.length - 1); const i = Math.min(r.length - 2, Math.floor(t)), f = t - i;
@@ -234,20 +280,28 @@ function quantile(arr, q) { const v = []; for (const x of arr) if (x > 0) v.push
 
 const off = document.createElement("canvas");
 async function buildField() {
+  if (S.mode === "density") {
+    const H = heatField(S.lines), f = H.a; off.width = H.w; off.height = H.h;
+    const octx = off.getContext("2d"), img = octx.createImageData(H.w, H.h), px = img.data, E = 6;
+    // while the animation plays, keep the first week's colour scale so weeks are comparable
+    const vmax = S.playing && S.playing.vmax || Math.max(1, quantile(f, 0.995)), L = Math.log1p(vmax);
+    if (S.playing) S.playing.vmax = vmax;
+    for (let y = 0; y < H.h; y++) for (let x = 0; x < H.w; x++) { const i = y * H.w + x; if (f[i] < 0.05) continue;
+      const t = Math.min(1, Math.log1p(f[i]) / L), c = lerpRamp(SEQ, t);
+      const edge = Math.min(1, (Math.min(x, y, H.w - 1 - x, H.h - 1 - y) + 0.5) / E);   // no hard box edge
+      px.set([c[0], c[1], c[2], Math.round(255 * Math.min(1, 0.15 + t) * edge * Math.min(1, f[i]))], i * 4); }
+    octx.putImageData(img, 0, 0);
+    S.field = H; S.vmax = vmax; return;
+  }
   off.width = G.w; off.height = G.h;
   const octx = off.getContext("2d"), img = octx.createImageData(G.w, G.h), px = img.data;
-  if (S.mode === "density") {
-    const f = await average(S.sel); const vmax = Math.max(1, quantile(f, 0.995)); const L = Math.log1p(vmax);
-    for (let i = 0; i < f.length; i++) { if (f[i] <= 0) continue; const t = Math.log1p(f[i]) / L;
-      const c = lerpRamp(SEQ, t); px.set([c[0], c[1], c[2], Math.round(255 * Math.min(1, 0.25 + t * 0.9))], i * 4); }
-    S.field = { a: f }; S.vmax = vmax;
-  } else {
+  {
     const [a, b] = await Promise.all([average(S.base), average(S.sel)]);
     const ref = Math.max(1, quantile(a.map((x, i) => Math.max(x, b[i])), 0.99)), L = Math.log1p(ref);
     for (let i = 0; i < a.length; i++) { const m = Math.max(a[i], b[i]); if (m < 0.3) continue;
       const t = (b[i] - a[i]) / m, w = Math.min(1, Math.log1p(m) / L), c = divColor(t);
       px.set([c[0], c[1], c[2], Math.round(255 * (0.15 + 0.85 * w) * (0.35 + 0.65 * Math.abs(t)))], i * 4); }
-    S.field = { a, b };
+    S.field = { a, b, w: G.w, h: G.h, res: G.res };
   }
   octx.putImageData(img, 0, 0);
 }
@@ -286,10 +340,12 @@ const LINE_LO = [52, 112, 192], LINE_HI = [10, 42, 98];
 // JOIN_WEIGHT_LOWCOV applies where receiver coverage is low (the hatched areas). Tried Nov 9 at 1.0
 // (count those joins in full): coverage is near 0% over Saudi, Iraq, Iran, Egypt south of Cairo, Yemen,
 // the Caucasus and the Arabian Sea (only the Levant, W Turkey and the Gulf coast are well covered), so
-// straight joins at full weight covered the map, e.g. Turkey->UAE across Iran. Kept equal; the hatching
-// tells the reader that faint there means unobserved. Saudi joins: median 1,100 km, Iraq 1,460 km.
+// straight joins at full weight covered the map, e.g. Turkey->UAE across Iran. Nov 9 (user: flights still
+// seemed to disappear where there is no data): 0.6 and not paled there, so routes stay continuous through
+// the hatched areas while observed corridors still read as busier. Saudi joins: median 1,100 km, Iraq 1,460 km.
 const JOIN_WEIGHT = "0.35";
-const JOIN_WEIGHT_LOWCOV = "0.35"; // the same, where coverage is low (1.0 = count those joins in full)
+const JOIN_WEIGHT_LOWCOV = "0.5"; // where coverage is low: this much of a flight for width...
+const JOIN_PALE_LOWCOV = "0.5";   // ...and this much of the usual paling (0 = as opaque as heard lines)
 const JOIN_RAMP_KM = "250.0"; // ...reached gradually over this distance from where the aircraft was last/next heard
 // line scale in flights per WEEK on a path: WEEK_LO and below = thinnest, faint below it (rare flights are
 // noise for trends); WEEK_HI and above = thickest, darkest
@@ -377,7 +433,7 @@ if (gl) {
         lc = lowCoverage(unproject(f));
       }
       float k = mix(1.0, mix(${JOIN_WEIGHT}, ${JOIN_WEIGHT_LOWCOV}, lc), g);
-      float pale = g * (1.0 - lc) + g * lc * (u_gaps ? ${JOIN_WEIGHT_LOWCOV} / ${JOIN_WEIGHT} : 1.0 - smoothstep(${JOIN_WEIGHT}, 1.0, ${JOIN_WEIGHT_LOWCOV}));
+      float pale = g * (1.0 - lc) + g * lc * ${JOIN_WEIGHT_LOWCOV} / ${JOIN_WEIGHT} * (u_gaps ? 1.0 : ${JOIN_PALE_LOWCOV});
       o = vec4(k * w, pale * w, k * w * off);
     }`);
   const FS = `#version 300 es
@@ -626,9 +682,10 @@ function draw() {
   ctx.fillStyle = "#ffffff"; for (const l of BM.lakes) for (const ring of l.rings) if (visible(ring, r)) { ringPath(ctx, ring); ctx.fill(); }
   const [x0, y0] = proj(G.lat_max, G.lon_min), [x1, y1] = proj(G.lat_min, G.lon_max);
   if (S.mode !== "lines") {
-    ctx.imageSmoothingEnabled = S.zoom < 3; ctx.globalCompositeOperation = "multiply";
+    ctx.imageSmoothingEnabled = S.mode === "density" || S.zoom < 3; ctx.globalCompositeOperation = "multiply";
     ctx.drawImage(off, x0, y0, x1 - x0, y1 - y0); ctx.globalCompositeOperation = "source-over";
-  } else drawHatch(r, dpr, x0, y0, x1, y1);
+  }
+  if (S.mode !== "compare") drawHatch(r, dpr, x0, y0, x1, y1);
   ctx.strokeStyle = "rgba(92,89,80,.6)"; ctx.lineWidth = 0.7;           // country outlines
   for (const c of BM.countries) for (const ring of c.rings) if (visible(ring, r)) { ringPath(ctx, ring); ctx.stroke(); }
   drawGL();
@@ -668,8 +725,8 @@ function legend() {
       paths flown less than ${WEEK_LO} times a week are faint. Lines fade out beyond ~1,800 km from ${ap ? ap[0] : "Doha"}.</div>
       <div class="lineKey">${[[1, "1 / week"], [WEEK_LO, `${WEEK_LO} / week`], [50, "50 / week"], [WEEK_HI, `${WEEK_HI}+ / week`]]
         .map(([f, t]) => `<span><i style="border-top:${w(f).toFixed(1)}px solid ${col(f)}"></i>${t}</span>`).join("")}</div>
-      <div class="lineKey"><span><i style="border-top:${w(50).toFixed(1)}px solid ${S.gaps ? "rgba(128,125,117,.6)" : col(50, 0.3)}"></i>not heard by receivers: straight join, drawn pale</span></div>
-      <div class="lineKey"><span><i class="hatch"></i>few or no receivers: lines here are mostly straight joins, so they look fainter than the real traffic</span></div>`;
+      <div class="lineKey"><span><i style="border-top:${w(50).toFixed(1)}px solid ${S.gaps ? "rgba(128,125,117,.6)" : col(50, 0.3)}"></i>not heard although receivers cover the area: straight join, drawn pale</span></div>
+      <div class="lineKey"><span><i class="hatch"></i>few or no receivers: lines are straight joins between the last and next report, and look a little thinner than the real traffic</span></div>`;
     return;
   }
   el.innerHTML = `<div id="legTitle"></div><canvas id="legBar" width="220" height="10"></canvas><div class="ticks" id="legTicks"></div>`;
@@ -677,9 +734,10 @@ function legend() {
   for (let x = 0; x < 220; x++) { const t = x / 219; const col = S.mode === "density" ? lerpRamp(SEQ, t) : divColor(t * 2 - 1);
     g.fillStyle = `rgb(${col.map(Math.round).join(",")})`; g.fillRect(x, 0, 1, 10); }
   if (S.mode === "density") {
-    $("legTitle").textContent = "Avg flights per day crossing each ~11 km cell";
+    $("legTitle").textContent = `Flights per day crossing each ~28 km cell${S.airport ? ` (to/from ${M.airports[S.airport - 1][0]})` : ""}`;
     const v = S.vmax, ticks = [0, 0.33, 0.66, 1].map(t => Math.expm1(t * Math.log1p(v)));
     $("legTicks").innerHTML = ticks.map((t, i) => `<span>${t < 10 ? t.toFixed(t < 1 ? 1 : 0) : Math.round(t)}${i === 3 ? "+" : ""}</span>`).join("");
+    el.insertAdjacentHTML("beforeend", `<div class="lineKey"><span><i class="hatch"></i>few or no receivers: counted from straight joins, position approximate</span></div>`);
   } else {
     $("legTitle").textContent = "Change in flights, recent vs baseline";
     $("legTicks").innerHTML = "<span>−100% fewer</span><span>no change</span><span>more +</span>";
@@ -743,10 +801,11 @@ function setRange(r, rebuild) {
 // ---------- refresh ----------
 let token = 0;
 async function refresh() {
-  const my = ++token; $("loading").style.display = "block";
-  if (S.mode === "lines") {
+  const my = ++token; if (!S.playing) $("loading").style.display = "block";
+  if (S.mode !== "compare") {
     const L = await loadLines(S.sel); if (my !== token) return;
-    S.lines = L; S.cov = coverage(L); S.hatch = hatchMask(S.cov); uploadLines(L);
+    S.lines = L; S.cov = coverage(L); S.hatch = hatchMask(S.cov);
+    if (S.mode === "lines") uploadLines(L); else await buildField();
   } else { await buildField(); if (my !== token) return; }
   $("loading").style.display = "none"; legend(); stats(); draw();
 }
@@ -757,7 +816,7 @@ function seg(id, fn) { $(id).addEventListener("click", e => { const b = e.target
 function preset(k) { [...$("presets").children].forEach(b => b.classList.toggle("on", b.dataset.v === String(k))); }
 seg("mode", v => { stopPlay(); S.mode = v; const c = v === "compare", l = v === "lines", n = M.days.length;
   $("editing").classList.toggle("hide", !c); $("kBase").classList.toggle("hide", !c); $("play").classList.toggle("hide", c);
-  $("airportCtl").classList.toggle("hide", !l); $("brightCtl").classList.toggle("hide", !l); $("gapCtl").classList.toggle("hide", !l);
+  $("airportCtl").classList.toggle("hide", c); $("brightCtl").classList.toggle("hide", !l); $("gapCtl").classList.toggle("hide", !l);
   $("kSelTxt").textContent = c ? "Recent" : "Selected"; $("presetLbl").textContent = c ? "Recent" : "Range";
   $("noteTxt").innerHTML = NOTES[v];
   if (c) { S.base = [0, Math.min(n - 1, 29)]; S.sel = [Math.max(0, n - 14), n - 1]; S.editing = "cmp"; preset(null);
@@ -768,17 +827,32 @@ seg("presets", v => { stopPlay(); const n = M.days.length, k = Math.min(n, +v);
   if (S.mode === "compare" && S.editing === "base") S.base = [0, Math.min(n - 1, k - 1)]; else S.sel = [n - k, n - 1];
   timeline(); refresh(); });
 seg("editing", v => { S.editing = v; });
-$("airport").onchange = e => { S.airport = +e.target.value; buildIndex(); stats(); legend(); draw(); };
+$("airport").onchange = async e => { S.airport = +e.target.value;
+  if (S.mode === "lines") buildIndex(); else if (S.mode === "density" && S.lines) await buildField();
+  stats(); legend(); draw(); };
 $("bright").oninput = e => { S.bright = +e.target.value; draw(); legend(); };
 $("gaps").onchange = e => { S.gaps = e.target.checked; draw(); legend(); };
 $("noteX").onclick = () => $("note").classList.add("hide");
-function stopPlay() { if (S.playing) { clearTimeout(S.playing); S.playing = null; $("play").textContent = "▶ Play weekly"; } }
-$("play").onclick = () => {
-  if (S.playing) return stopPlay();
-  let i = 0; const n = M.days.length; $("play").textContent = "■ Stop"; preset(null);
-  const step = async () => { if (i + 6 >= n) return stopPlay(); S.sel = [i, i + 6]; timeline(); await refresh(); i++;
-    if (S.playing) S.playing = setTimeout(step, 350); };
-  S.playing = setTimeout(step, 0);
+// Animation: one frame per calendar week (7-day windows ending on the last day), drawn from a lighter
+// random sample and preloading the next week. Stopping (or reaching the end) leaves that week selected
+// as the static view, reloaded in full.
+function stopPlay() {
+  if (!S.playing) return false;
+  S.playing = null; $("play").textContent = "▶ Play weekly"; $("frame").classList.add("hide"); return true;
+}
+function weekFrames() { const out = []; for (let e = M.days.length - 1; e - 6 >= 0; e -= 7) out.unshift([e - 6, e]); return out; }
+$("play").onclick = async () => {
+  if (stopPlay()) return refresh();
+  const F = weekFrames(), me = S.playing = {}; $("play").textContent = "■ Stop"; preset(null);
+  $("frame").classList.remove("hide");
+  for (let f = 0; f < F.length && S.playing === me; f++) {
+    const t0 = performance.now(); S.sel = F[f]; timeline();
+    $("frame").innerHTML = `${span(F[f])}<small>week ${f + 1} of ${F.length}</small>`;
+    await refresh();
+    if (f + 1 < F.length) shardPlan(F[f + 1], PLAY_MAX_LINES).list.forEach(([d, k]) => loadShard(d, k));
+    await new Promise(r => setTimeout(r, Math.max(0, FRAME_MS - (performance.now() - t0))));
+  }
+  if (S.playing === me) { stopPlay(); refresh(); }
 };
 
 // zoom & pan
@@ -806,8 +880,8 @@ function hover(x, y) {
   let html = null;
   if (ev) html = `<b>${ev.title}</b><br><span class="s">${fmtD(ev.date)} · ${ev.type || "event"}</span>`;
   else if (S.mode !== "lines" && S.field) {
-    const c = Math.floor((lon - G.lon_min) / G.res), r = Math.floor((G.lat_max - lat) / G.res);
-    if (c >= 0 && r >= 0 && c < G.w && r < G.h) { const i = r * G.w + c;
+    const F = S.field, c = Math.floor((lon - G.lon_min) / F.res), r = Math.floor((G.lat_max - lat) / F.res);
+    if (c >= 0 && r >= 0 && c < F.w && r < F.h) { const i = r * F.w + c;
       if (S.mode === "density") html = `<b>${fmtN(S.field.a[i])}</b> flights/day<br><span class="s">${pos}</span>`;
       else { const a = S.field.a[i], b = S.field.b[i], ch = a > 0 ? ((b - a) / a * 100) : null;
         html = `Baseline <b>${fmtN(a)}</b>/day → recent <b>${fmtN(b)}</b>/day${ch === null ? "" : ` (${ch >= 0 ? "+" : "−"}${Math.abs(ch).toFixed(0)}%)`}<br><span class="s">${pos}</span>`; } }

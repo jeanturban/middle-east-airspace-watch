@@ -87,12 +87,22 @@ GitHub Pages source = "GitHub Actions" (already set).
   Egypt south of Cairo, Yemen, Caucasus, Arabian Sea (only Levant, W Turkey, Gulf coast covered), so full-weight
   straight joins swamped the map (e.g. Turkey->UAE across Iran). Kept at 0.35; hatching + legend explain faintness.
   Saudi joins median 1,100 km, Iraq 1,460 km, so a join-length cutoff doesn't help either.
+  Nov 9 (user: flights still seemed to disappear without data): in low-coverage areas joins now count
+  JOIN_WEIGHT_LOWCOV=0.5 and get JOIN_PALE_LOWCOV=0.5 of the usual paling (0.6/no paling was a mess of straight lines:
+  joins never overlap, so they don't stack into corridors like heard paths do).
   "Line width" slider scales w. Without float targets: premultiplied additive LINE_STRIPs (no width encoding).
   Never go back to plain alpha blending at tiny alpha: the 8-bit canvas alpha rounds to 0 and the layer vanishes.
   The old CSS-pixel dilation looked beaded/pixelated (user, Nov 8); don't return to it.
 - Equirectangular projection with cos(28°) x-scaling; zoom 0.2–16 (zoom out to world).
 - Modes: Flight paths (default) / Heatmap / Compare periods (baseline vs recent, red = fewer flights).
-- Controls: range presets, drag-select on daily-totals timeline, airport filter, line width, mark unheard stretches, ▶ Play weekly.
+- Controls: range presets, drag-select on daily-totals timeline, airport filter (lines + heatmap), line width, mark unheard stretches, ▶ Play weekly.
+- Heatmap (Nov 9): built in the browser from the loaded lines (heatField, 0.25° cells, each flight once per cell,
+  unheard joins included, light blur, faded box edges, coverage hatching). The days/*.json density grids (observed
+  only, blank where no receivers) are now used only by Compare periods.
+- ▶ Play weekly (Nov 9): one frame per calendar week ending on the last day, PLAY_MAX_LINES=30k sample, preloads the
+  next week, big date label (#frame), heatmap colour scale locked to the first frame. Stop/end = that week, reloaded in full.
+- Gulf<->Europe corridor split (crossing 34N, Nov 9 check): via Saudi/Jordan ~90% in Aug -> ~50% by late Oct, Iraq
+  8% -> 50%, Iran ~0.2%. Not yet checked against news or receiver changes. Idea: a "Route corridors" chart.
 - `MAX_LINES = 150000`: above it, fewer shards per day are loaded (random sample, stated in the UI).
 - `manifest.bundle` (optional) lets a host that can't serve .bin (the claude.ai artifact preview) use one base64 JSON.
 - Light theme (user, Nov 8): white sea, beige land #e8e4d8, darker country outlines, page surface #f7f6f2.
