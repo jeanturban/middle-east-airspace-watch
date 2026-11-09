@@ -46,6 +46,7 @@
   .lineKey { flex-wrap: wrap; align-items: center; }
   .lineKey i { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--blue); }
   .lineKey i.gap { border-top: 1px solid rgba(120,119,112,.7); }
+  .lineKey i.hatch { flex: none; height: 12px; border: 0; background: repeating-linear-gradient(-45deg, rgba(110,104,90,.5) 0 1.2px, transparent 1.2px 4.2px); }
   #zoom { position: absolute; right: 12px; top: 12px; display: flex; flex-direction: column; gap: 4px; z-index: 2; }
   #zoom .btn { width: 30px; padding: 4px 0; }
   #loading { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); background: var(--panel);
@@ -120,7 +121,7 @@ const S = { mode: "lines", sel: [0, 0], base: [0, 0], editing: "cmp", cache: new
             zoom: 1, panX: 0, panY: 0, playing: null, field: null, airport: 0, bright: 0, gaps: false, lines: null };
 let G, M, BM, EV = [];
 const NOTES = {
-  lines: "Each line is one civil flight that crossed the region (Egypt to Pakistan, Yemen to the Caucasus), drawn from takeoff to landing. Lines fade out with distance from Doha (or the airport picked under <i>Flights</i>), from about 1,800 km. Where no receiver heard the aircraft for over 5 minutes, such as over open sea, the line is a straight join between the last and next report (tick <i>Mark unheard stretches</i> to show these in grey). Empty areas can mean airlines avoid them <i>or</i> that no receivers cover them.",
+  lines: "Each line is one civil flight that crossed the region (Egypt to Pakistan, Yemen to the Caucasus), drawn from takeoff to landing. Lines fade out with distance from Doha (or the airport picked under <i>Flights</i>), from about 1,800 km. Where no receiver heard the aircraft for over 5 minutes, the line is a straight join between the last and next report (tick <i>Mark unheard stretches</i> to show these in grey). <b>Hatched areas</b> (e.g. Saudi Arabia, Iraq, Iran, the Arabian Sea) have few or no receivers: flights still cross them, but are drawn as pale straight joins, so traffic there looks lighter than it is. Compare hatched areas over time rather than with unhatched ones. Empty areas can mean airlines avoid them <i>or</i> that no receivers cover them.",
   density: "Each cell counts flights (civil, airborne) that crossed it per day, averaged over the selected dates. Dark areas can mean aircraft avoid them <i>or</i> that no receivers cover them.",
   compare: "Red cells lost traffic compared with the baseline, blue cells gained it. A cell that goes from busy to empty is a real change; an area that was always empty may just lack receivers."
 };
@@ -179,6 +180,47 @@ async function loadLines([i0, i1]) {
     for (let j = 0; j < s.nl; j++) { start[li + j] = pi; pi += s.lens[j]; }
     li += s.nl; }
   return { nl, np, pts, gap, start, len, orig, dest, total, days: days.length, sampled: per < 4 && nl < total };
+}
+
+// Receiver coverage on a COV_RES° grid over the analysis box, from the loaded lines: the share of drawn
+// distance in each cell that was actually heard (observed) rather than an unheard straight join.
+// low[] = 0 (well covered) .. 1 (little or no coverage); hatch[] = low, but only where flights pass.
+const COV_RES = 0.5;
+const COV_OBS = [0.15, 0.45];   // observed share: at or below the first = no coverage, at or above the second = covered
+const COV_KM_DAY = [20, 120];   // km of flight path per day in a cell (all flights): hatch fades in over this range
+function coverage(L) {
+  const cw = Math.round((G.lon_max - G.lon_min) / COV_RES), ch = Math.round((G.lat_max - G.lat_min) / COV_RES);
+  const obs = new Float64Array(cw * ch), join = new Float64Array(cw * ch), P = L.pts, STEP = 0.25;
+  for (let j = 0; j < L.nl; j++) {
+    const s = L.start[j];
+    for (let p = s + 1; p < s + L.len[j]; p++) {
+      const f = L.gap[p]; if (f > 1) continue;
+      const la0 = P[2 * p - 2] / 100, lo0 = P[2 * p - 1] / 100, la1 = P[2 * p] / 100, lo1 = P[2 * p + 1] / 100;
+      if (Math.max(la0, la1) < G.lat_min || Math.min(la0, la1) > G.lat_max ||
+          Math.max(lo0, lo1) < G.lon_min || Math.min(lo0, lo1) > G.lon_max) continue;
+      const dla = la1 - la0, dlo = lo1 - lo0, n = Math.max(1, Math.ceil(Math.max(Math.abs(dla), Math.abs(dlo)) / STEP));
+      const km = 111.2 * Math.hypot(dla, dlo * Math.cos((la0 + la1) * Math.PI / 360)) / n, a = f ? join : obs;
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n, x = Math.floor((lo0 + dlo * t - G.lon_min) / COV_RES), y = Math.floor((la0 + dla * t - G.lat_min) / COV_RES);
+        if (x >= 0 && y >= 0 && x < cw && y < ch) a[y * cw + x] += km;
+      }
+    }
+  }
+  // 3x3 smoothing so neither the line weights nor the hatching follow the grid's blocks
+  const blur = a => { const o = new Float64Array(a.length);
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) { let v = 0, n = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy;
+        if (X >= 0 && Y >= 0 && X < cw && Y < ch) { v += a[Y * cw + X]; n++; } }
+      o[y * cw + x] = v / n; }
+    return o; };
+  const O = blur(obs), J = blur(join), perDay = 1 / Math.max(1, L.days) / (L.sampled ? L.nl / L.total : 1);
+  const sm = (e0, e1, x) => { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  const low = new Uint8Array(cw * ch), hatch = new Uint8Array(cw * ch);
+  for (let i = 0; i < low.length; i++) {
+    const tot = O[i] + J[i], l = tot > 0 ? 1 - sm(COV_OBS[0], COV_OBS[1], O[i] / tot) : 0;
+    low[i] = Math.round(255 * l); hatch[i] = Math.round(255 * l * sm(COV_KM_DAY[0], COV_KM_DAY[1], tot * perDay));
+  }
+  return { cw, ch, low, hatch };
 }
 
 // ---------- colour ----------
@@ -240,7 +282,14 @@ const R_MAX = 4;              // widest half-width in CSS pixels
 const FADE_KM = [1800, 3200]; // 1800 km from Doha covers all of Saudi Arabia; Istanbul/Delhi are ~2,600-2,700 km
 // line colour by flights/day (t = log2(1 + f) / log2(101)): mid blue for rare paths -> deep navy for 100+/day
 const LINE_LO = [52, 112, 192], LINE_HI = [10, 42, 98];
-const JOIN_WEIGHT = "0.35";   // an unheard join counts this much of a flight towards line width
+// An unheard join counts this much of a flight towards line width, so observed corridors dominate.
+// JOIN_WEIGHT_LOWCOV applies where receiver coverage is low (the hatched areas). Tried Nov 9 at 1.0
+// (count those joins in full): coverage is near 0% over Saudi, Iraq, Iran, Egypt south of Cairo, Yemen,
+// the Caucasus and the Arabian Sea (only the Levant, W Turkey and the Gulf coast are well covered), so
+// straight joins at full weight covered the map, e.g. Turkey->UAE across Iran. Kept equal; the hatching
+// tells the reader that faint there means unobserved. Saudi joins: median 1,100 km, Iraq 1,460 km.
+const JOIN_WEIGHT = "0.35";
+const JOIN_WEIGHT_LOWCOV = "0.35"; // the same, where coverage is low (1.0 = count those joins in full)
 const JOIN_RAMP_KM = "250.0"; // ...reached gradually over this distance from where the aircraft was last/next heard
 // line scale in flights per WEEK on a path: WEEK_LO and below = thinnest, faint below it (rare flights are
 // noise for trends); WEEK_HI and above = thickest, darkest
@@ -303,7 +352,12 @@ if (gl) {
       gl_Position = vec4(p / dev * 2.0 - 1.0, 0.0, 1.0);
       v_a = a; v_b = b;
     }`, `#version 300 es
-    precision highp float; flat in vec2 v_a, v_b; flat in float v_gap; uniform vec4 u_view; uniform float u_dpr; out vec4 o;
+    precision highp float; flat in vec2 v_a, v_b; flat in float v_gap; ${VIEW}
+    uniform sampler2D u_cov; uniform vec4 u_box; uniform bool u_gaps; out vec4 o;
+    float lowCoverage(vec2 ll) {            // 0 = receivers cover this area, 1 = little or no coverage
+      vec2 uv = vec2((ll.y - u_box.z) / (u_box.w - u_box.z), (ll.x - u_box.x) / (u_box.y - u_box.x));
+      return any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))) ? 0.0 : texture(u_cov, uv).r;
+    }
     void main() {
       vec2 f = gl_FragCoord.xy, ab = v_b - v_a; float l2 = dot(ab, ab);
       float t = l2 > 0.0 ? dot(f - v_a, ab) / l2 : 0.0;
@@ -311,15 +365,20 @@ if (gl) {
       vec2 off = v_a + ab * clamp(t, 0.0, 1.0) - f;
       float w = 1.0 - length(off);                           // tent: weights across the line sum to ~1
       if (w <= 0.0) discard;
-      // unheard joins count less towards width and are paler, so observed corridors dominate; the change
-      // ramps in over JOIN_RAMP_KM from each end so a line doesn't switch style abruptly where coverage ends
-      float g = 0.0;
+      // unheard joins across covered airspace count less towards width and are paler, so observed corridors
+      // dominate; across low-coverage airspace they count in full (the flights are real, the path is not
+      // known). The change ramps in over JOIN_RAMP_KM from each end so a line doesn't switch style abruptly.
+      // G holds the "pale" weight; jInit turns it into a share as JOIN_WEIGHT * G / R. "Mark unheard
+      // stretches" makes every join pale/grey (share 1) but keeps its width.
+      float g = 0.0, lc = 0.0;
       if (v_gap > 0.5) {
         float km = min(t, 1.0 - t) * sqrt(l2) / u_dpr * 111.2 / u_view.z;   // along the join, to its nearer end
         g = smoothstep(0.0, ${JOIN_RAMP_KM}, km);
+        lc = lowCoverage(unproject(f));
       }
-      float k = mix(1.0, ${JOIN_WEIGHT}, g);
-      o = vec4(k * w, g * w, k * w * off);
+      float k = mix(1.0, mix(${JOIN_WEIGHT}, ${JOIN_WEIGHT_LOWCOV}, lc), g);
+      float pale = g * (1.0 - lc) + g * lc * (u_gaps ? ${JOIN_WEIGHT_LOWCOV} / ${JOIN_WEIGHT} : 1.0 - smoothstep(${JOIN_WEIGHT}, 1.0, ${JOIN_WEIGHT_LOWCOV}));
+      o = vec4(k * w, pale * w, k * w * off);
     }`);
   const FS = `#version 300 es
     in vec2 a_xy; void main() { gl_Position = vec4(a_xy, 0.0, 1.0); }`;
@@ -430,6 +489,38 @@ function uploadLines(L) {
   const lf = gl.getAttribLocation(segP, "a_flag"); gl.enableVertexAttribArray(lf); gl.vertexAttribPointer(lf, 1, gl.UNSIGNED_BYTE, false, 1, 0); gl.vertexAttribDivisor(lf, 1);
   gl.bindVertexArray(null);
   S.glBufs = [pb, gb, fb]; S.flagBuf = fb; buildIndex();
+  // coverage grid -> texture (row 0 = southern edge), sampled with linear filtering by the segment shader
+  const C = S.cov;
+  if (!S.covTex) S.covTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, S.covTex); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, C.cw, C.ch, 0, gl.RED, gl.UNSIGNED_BYTE, C.low);
+  for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR],
+                        [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, p, v);
+}
+// hatching mask for the low-coverage areas: one pixel per coverage cell (north up), scaled up smoothly when drawn
+function hatchMask(C) {
+  const c = document.createElement("canvas"); c.width = C.cw; c.height = C.ch;
+  const g = c.getContext("2d"), img = g.createImageData(C.cw, C.ch);
+  const E = 4;   // fade out over the outermost cells so the box edge doesn't show as a hard rectangle
+  for (let y = 0; y < C.ch; y++) for (let x = 0; x < C.cw; x++) {
+    const e = Math.min(1, (Math.min(x, y, C.cw - 1 - x, C.ch - 1 - y) + 0.5) / E);
+    img.data[((C.ch - 1 - y) * C.cw + x) * 4 + 3] = C.hatch[y * C.cw + x] * e; }
+  g.putImageData(img, 0, 0); return c;
+}
+const hatchTile = (() => {     // diagonal stripes, 6 CSS px apart
+  const c = document.createElement("canvas"); c.width = c.height = 12; const g = c.getContext("2d");
+  g.strokeStyle = "rgba(110,104,90,.42)"; g.lineWidth = 1.2;
+  for (const o of [-12, 0, 12]) { g.beginPath(); g.moveTo(o, 12); g.lineTo(o + 12, 0); g.stroke(); }
+  return c; })();
+const hatchCv = document.createElement("canvas");
+function drawHatch(r, dpr, x0, y0, x1, y1) {
+  if (!S.hatch) return;
+  hatchCv.width = Math.round(r.width * dpr); hatchCv.height = Math.round(r.height * dpr);
+  const h = hatchCv.getContext("2d"); h.setTransform(dpr, 0, 0, dpr, 0, 0);
+  h.fillStyle = h.createPattern(hatchTile, "repeat"); h.fillRect(0, 0, r.width, r.height);
+  h.globalCompositeOperation = "destination-in"; h.imageSmoothingEnabled = true;
+  h.drawImage(S.hatch, x0, y0, x1 - x0, y1 - y0);
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(hatchCv, 0, 0); ctx.restore();
 }
 function buildIndex() {
   const L = S.lines; if (!gl || !L) return;
@@ -480,6 +571,10 @@ function drawGL() {
   const [A, P, Q] = acc.t, wk = Math.pow(2, S.bright / 2);
   // 1. sums
   view(segP);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, S.covTex); gl.activeTexture(gl.TEXTURE0);
+  gl.uniform1i(gl.getUniformLocation(segP, "u_cov"), 1);
+  gl.uniform4f(gl.getUniformLocation(segP, "u_box"), G.lat_min, G.lat_max, G.lon_min, G.lon_max);
+  gl.uniform1i(gl.getUniformLocation(segP, "u_gaps"), S.gaps ? 1 : 0);
   gl.bindFramebuffer(gl.FRAMEBUFFER, A.fb); gl.clear(gl.COLOR_BUFFER_BIT);
   gl.bindVertexArray(segVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, nSeg);
   // 2. jump flooding between P and Q
@@ -533,7 +628,7 @@ function draw() {
   if (S.mode !== "lines") {
     ctx.imageSmoothingEnabled = S.zoom < 3; ctx.globalCompositeOperation = "multiply";
     ctx.drawImage(off, x0, y0, x1 - x0, y1 - y0); ctx.globalCompositeOperation = "source-over";
-  }
+  } else drawHatch(r, dpr, x0, y0, x1, y1);
   ctx.strokeStyle = "rgba(92,89,80,.6)"; ctx.lineWidth = 0.7;           // country outlines
   for (const c of BM.countries) for (const ring of c.rings) if (visible(ring, r)) { ringPath(ctx, ring); ctx.stroke(); }
   drawGL();
@@ -573,7 +668,8 @@ function legend() {
       paths flown less than ${WEEK_LO} times a week are faint. Lines fade out beyond ~1,800 km from ${ap ? ap[0] : "Doha"}.</div>
       <div class="lineKey">${[[1, "1 / week"], [WEEK_LO, `${WEEK_LO} / week`], [50, "50 / week"], [WEEK_HI, `${WEEK_HI}+ / week`]]
         .map(([f, t]) => `<span><i style="border-top:${w(f).toFixed(1)}px solid ${col(f)}"></i>${t}</span>`).join("")}</div>
-      <div class="lineKey"><span><i style="border-top:${w(50).toFixed(1)}px solid ${S.gaps ? "rgba(128,125,117,.6)" : col(50, 0.3)}"></i>not heard by receivers: straight join, fading in over ~250 km</span></div>`;
+      <div class="lineKey"><span><i style="border-top:${w(50).toFixed(1)}px solid ${S.gaps ? "rgba(128,125,117,.6)" : col(50, 0.3)}"></i>not heard by receivers: straight join, drawn pale</span></div>
+      <div class="lineKey"><span><i class="hatch"></i>few or no receivers: lines here are mostly straight joins, so they look fainter than the real traffic</span></div>`;
     return;
   }
   el.innerHTML = `<div id="legTitle"></div><canvas id="legBar" width="220" height="10"></canvas><div class="ticks" id="legTicks"></div>`;
@@ -650,7 +746,7 @@ async function refresh() {
   const my = ++token; $("loading").style.display = "block";
   if (S.mode === "lines") {
     const L = await loadLines(S.sel); if (my !== token) return;
-    S.lines = L; uploadLines(L);
+    S.lines = L; S.cov = coverage(L); S.hatch = hatchMask(S.cov); uploadLines(L);
   } else { await buildField(); if (my !== token) return; }
   $("loading").style.display = "none"; legend(); stats(); draw();
 }

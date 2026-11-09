@@ -81,6 +81,12 @@ GitHub Pages source = "GitHub Actions" (already set).
   (user found the abrupt dark->light switch at coverage edges odd). Checked Nov 1-7: N Saudi 26-31N 39-46E is 1%
   observed / 99% joins (no receivers) vs 89% observed in the Gulf: the faintness there is coverage, not a data error. Measured Nov 1-3 within 3200 km: joins are 57% of drawn distance,
   69% of it from joins >1000 km, so they must stay visually secondary or they swamp avoided airspace.
+  Coverage hatching (Nov 9): coverage() bins the loaded lines into a 0.5° grid (observed vs join km); cells with
+  observed share <~30% and real traffic are hatched on #base (lines mode), faded at the box edges. The grid is also
+  a texture in segP (JOIN_WEIGHT_LOWCOV). Tried counting joins in full there: coverage is ~0% over Saudi, Iraq, Iran,
+  Egypt south of Cairo, Yemen, Caucasus, Arabian Sea (only Levant, W Turkey, Gulf coast covered), so full-weight
+  straight joins swamped the map (e.g. Turkey->UAE across Iran). Kept at 0.35; hatching + legend explain faintness.
+  Saudi joins median 1,100 km, Iraq 1,460 km, so a join-length cutoff doesn't help either.
   "Line width" slider scales w. Without float targets: premultiplied additive LINE_STRIPs (no width encoding).
   Never go back to plain alpha blending at tiny alpha: the 8-bit canvas alpha rounds to 0 and the layer vanishes.
   The old CSS-pixel dilation looked beaded/pixelated (user, Nov 8); don't return to it.
